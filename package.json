@@ -1,0 +1,55 @@
+{
+  "name": "@keito-ai/sdk",
+  "version": "0.1.0",
+  "description": "Official Node.js SDK for the Keito API — time tracking, expenses, and invoicing for humans and AI agents",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.6.1",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "keito",
+    "time-tracking",
+    "invoicing",
+    "ai-agents",
+    "sdk",
+    "api-client"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/osodevops/keito-node.git"
+  }
+}

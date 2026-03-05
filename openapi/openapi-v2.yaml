@@ -1,0 +1,1166 @@
+openapi: 3.0.3
+info:
+  title: Keito API v2
+  description: |
+    Harvest-compatible REST API for time tracking, expenses, projects, invoicing, and reporting.
+
+    ## Authentication
+
+    Two methods are supported:
+
+    1. **API Key** — `Authorization: Bearer kto_...` + `Keito-Account-Id: <company_cuid>` header
+    2. **WorkOS JWT** — `Authorization: Bearer <jwt>` (company resolved from token claims)
+
+    All responses include `X-Keito-API-Version: 2`.
+  version: "2.0"
+  contact:
+    name: Keito Support
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://app.keito.io
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Time Entries
+  - name: Expenses
+  - name: Projects
+  - name: Clients
+  - name: Contacts
+  - name: Tasks
+  - name: Users
+  - name: Invoices
+  - name: Invoice Messages
+  - name: Reports
+
+paths:
+  # ─── TIME ENTRIES ──────────────────────────────────────────────
+  /api/v2/time_entries:
+    get:
+      tags: [Time Entries]
+      summary: List time entries
+      operationId: listTimeEntries
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: user_id
+          in: query
+          schema: { type: string }
+          description: Filter by user CUID
+        - name: client_id
+          in: query
+          schema: { type: string }
+        - name: project_id
+          in: query
+          schema: { type: string }
+        - name: task_id
+          in: query
+          schema: { type: string }
+        - name: is_billed
+          in: query
+          schema: { type: boolean }
+        - name: is_running
+          in: query
+          schema: { type: boolean }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+          description: Start date (YYYY-MM-DD)
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+          description: End date (YYYY-MM-DD)
+        - name: updated_since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: source
+          in: query
+          schema: { type: string, enum: [web, cli, api, agent] }
+          description: Filter by entry source. Comma-separated for multiple (e.g. `agent,cli`).
+      responses:
+        "200":
+          description: Paginated list of time entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      time_entries:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TimeEntry"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      tags: [Time Entries]
+      summary: Create a time entry
+      operationId: createTimeEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryCreate"
+      responses:
+        "200":
+          description: Created time entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v2/time_entries/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: Time entry CUID
+
+    patch:
+      tags: [Time Entries]
+      summary: Update a time entry
+      operationId: updateTimeEntry
+      description: |
+        Update fields on a time entry. `source` is immutable after creation.
+        Metadata uses merge semantics — new keys are merged into existing metadata.
+        Set metadata to `null` to clear it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryUpdate"
+      responses:
+        "200":
+          description: Updated time entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    delete:
+      tags: [Time Entries]
+      summary: Delete a time entry
+      operationId: deleteTimeEntry
+      description: Cannot delete locked or approved entries.
+      responses:
+        "204":
+          description: Time entry deleted
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Conflict — entry is approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ─── EXPENSES ──────────────────────────────────────────────────
+  /api/v2/expenses:
+    get:
+      tags: [Expenses]
+      summary: List expenses
+      operationId: listExpenses
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: user_id
+          in: query
+          schema: { type: string }
+        - name: client_id
+          in: query
+          schema: { type: string }
+        - name: project_id
+          in: query
+          schema: { type: string }
+        - name: is_billed
+          in: query
+          schema: { type: boolean }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: updated_since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: source
+          in: query
+          schema: { type: string, enum: [web, cli, api, agent] }
+      responses:
+        "200":
+          description: Paginated list of expenses
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      expenses:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Expense"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      tags: [Expenses]
+      summary: Create an expense
+      operationId: createExpense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpenseCreate"
+      responses:
+        "200":
+          description: Created expense
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Expense"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ─── PROJECTS ──────────────────────────────────────────────────
+  /api/v2/projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      operationId: listProjects
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: is_active
+          in: query
+          schema: { type: boolean, default: true }
+        - name: client_id
+          in: query
+          schema: { type: string }
+        - name: updated_since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Paginated list of projects
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      projects:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Project"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ─── CLIENTS ───────────────────────────────────────────────────
+  /api/v2/clients:
+    get:
+      tags: [Clients]
+      summary: List clients
+      operationId: listClients
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: is_active
+          in: query
+          schema: { type: boolean }
+        - name: updated_since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Paginated list of clients
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      clients:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Client"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      tags: [Clients]
+      summary: Create a client
+      operationId: createClient
+      description: Requires manager or admin permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientCreate"
+      responses:
+        "200":
+          description: Created client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v2/clients/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+
+    get:
+      tags: [Clients]
+      summary: Get a client
+      operationId: getClient
+      responses:
+        "200":
+          description: Client details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    patch:
+      tags: [Clients]
+      summary: Update a client
+      operationId: updateClient
+      description: Requires manager or admin permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientCreate"
+      responses:
+        "200":
+          description: Updated client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ─── CONTACTS ──────────────────────────────────────────────────
+  /api/v2/contacts:
+    get:
+      tags: [Contacts]
+      summary: List contacts
+      operationId: listContacts
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: client_id
+          in: query
+          schema: { type: string }
+        - name: updated_since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Paginated list of contacts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      contacts:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Contact"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      tags: [Contacts]
+      summary: Create a contact
+      operationId: createContact
+      description: Requires manager or admin permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactCreate"
+      responses:
+        "200":
+          description: Created contact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ─── TASKS ─────────────────────────────────────────────────────
+  /api/v2/tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks
+      operationId: listTasks
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: is_active
+          in: query
+          schema: { type: boolean }
+        - name: updated_since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Paginated list of tasks
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      tasks:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Task"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ─── USERS ─────────────────────────────────────────────────────
+  /api/v2/users/me:
+    get:
+      tags: [Users]
+      summary: Get current user
+      operationId: getCurrentUser
+      responses:
+        "200":
+          description: Current authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ─── INVOICES ──────────────────────────────────────────────────
+  /api/v2/invoices:
+    get:
+      tags: [Invoices]
+      summary: List invoices
+      operationId: listInvoices
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: client_id
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string, enum: [draft, open, paid, closed] }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+          description: Issue date start
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+          description: Issue date end
+        - name: updated_since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Paginated list of invoices
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      invoices:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Invoice"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      tags: [Invoices]
+      summary: Create an invoice
+      operationId: createInvoice
+      description: Requires manager or admin permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceCreate"
+      responses:
+        "200":
+          description: Created invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v2/invoices/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+
+    get:
+      tags: [Invoices]
+      summary: Get an invoice
+      operationId: getInvoice
+      responses:
+        "200":
+          description: Invoice with line items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    patch:
+      tags: [Invoices]
+      summary: Update an invoice
+      operationId: updateInvoice
+      description: Requires manager or admin permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceUpdate"
+      responses:
+        "200":
+          description: Updated invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    delete:
+      tags: [Invoices]
+      summary: Delete an invoice
+      operationId: deleteInvoice
+      description: Admin only. Can only delete draft invoices.
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  deleted: { type: boolean }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ─── INVOICE MESSAGES ──────────────────────────────────────────
+  /api/v2/invoices/{id}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+
+    get:
+      tags: [Invoice Messages]
+      summary: List invoice messages
+      operationId: listInvoiceMessages
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+      responses:
+        "200":
+          description: Paginated list of invoice messages
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      invoice_messages:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/InvoiceMessage"
+
+    post:
+      tags: [Invoice Messages]
+      summary: Send an invoice
+      operationId: sendInvoice
+      description: Sends the invoice via email and transitions state to OPEN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceMessageCreate"
+      responses:
+        "200":
+          description: Created invoice message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceMessage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ─── REPORTS ───────────────────────────────────────────────────
+  /api/v2/reports/time/team:
+    get:
+      tags: [Reports]
+      summary: Team time report
+      operationId: getTeamTimeReport
+      description: |
+        Aggregated time report by team member. Requires manager or admin permissions.
+        Date range cannot exceed 365 days.
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/per_page"
+        - name: from
+          in: query
+          required: true
+          schema: { type: string }
+          description: Start date in YYYYMMDD format
+        - name: to
+          in: query
+          required: true
+          schema: { type: string }
+          description: End date in YYYYMMDD format
+      responses:
+        "200":
+          description: Team time report
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationEnvelope"
+                  - type: object
+                    properties:
+                      results:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/TeamTimeResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key (kto_...) or WorkOS JWT
+
+  parameters:
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    per_page:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 2000, default: 100 }
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    # ── Common ─────────────────────────────────────────────────
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: bad request
+        error_description:
+          type: string
+          example: project_id is required
+
+    PaginationLinks:
+      type: object
+      properties:
+        first: { type: string }
+        next: { type: string, nullable: true }
+        previous: { type: string, nullable: true }
+        last: { type: string }
+
+    PaginationEnvelope:
+      type: object
+      properties:
+        per_page: { type: integer }
+        total_pages: { type: integer }
+        total_entries: { type: integer }
+        page: { type: integer }
+        links: { $ref: "#/components/schemas/PaginationLinks" }
+
+    IdName:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, nullable: true }
+
+    Metadata:
+      type: object
+      nullable: true
+      additionalProperties: true
+      description: Arbitrary JSON object, max 4 KB serialized.
+
+    # ── Time Entries ───────────────────────────────────────────
+    TimeEntry:
+      type: object
+      properties:
+        id: { type: string }
+        user_id: { type: string }
+        project_id: { type: string }
+        task_id: { type: string }
+        user: { $ref: "#/components/schemas/IdName" }
+        project: { $ref: "#/components/schemas/IdName" }
+        task: { $ref: "#/components/schemas/IdName" }
+        spent_date: { type: string, format: date }
+        hours: { type: number }
+        notes: { type: string, nullable: true }
+        is_running: { type: boolean }
+        timer_started_at: { type: string, format: date-time, nullable: true }
+        started_time: { type: string, nullable: true, description: "HH:mm" }
+        ended_time: { type: string, nullable: true, description: "HH:mm" }
+        is_locked: { type: boolean }
+        is_closed: { type: boolean }
+        is_billed: { type: boolean }
+        billable: { type: boolean }
+        budgeted: { type: boolean }
+        billable_rate: { type: number, nullable: true }
+        cost_rate: { type: number, nullable: true }
+        source:
+          type: string
+          enum: [web, cli, api, agent]
+        metadata: { $ref: "#/components/schemas/Metadata" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    TimeEntryCreate:
+      type: object
+      required: [project_id, task_id, spent_date]
+      properties:
+        project_id: { type: string }
+        task_id: { type: string }
+        spent_date: { type: string, format: date }
+        user_id: { type: string, description: Managers can create entries for other users. }
+        hours: { type: number, minimum: 0, maximum: 24 }
+        notes: { type: string }
+        billable: { type: boolean }
+        is_running: { type: boolean }
+        started_time: { type: string, description: "HH:mm" }
+        ended_time: { type: string, description: "HH:mm" }
+        source:
+          type: string
+          enum: [web, cli, api, agent]
+        metadata: { $ref: "#/components/schemas/Metadata" }
+
+    TimeEntryUpdate:
+      type: object
+      properties:
+        project_id: { type: string }
+        task_id: { type: string }
+        spent_date: { type: string, format: date }
+        hours: { type: number, minimum: 0, maximum: 24 }
+        notes: { type: string, nullable: true }
+        billable: { type: boolean }
+        started_time: { type: string, nullable: true }
+        ended_time: { type: string, nullable: true }
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+          description: Merged into existing metadata. Set to null to clear.
+
+    # ── Expenses ───────────────────────────────────────────────
+    Expense:
+      type: object
+      properties:
+        id: { type: string }
+        user_id: { type: string }
+        project_id: { type: string }
+        expense_category_id: { type: string }
+        user: { $ref: "#/components/schemas/IdName" }
+        project: { $ref: "#/components/schemas/IdName" }
+        expense_category: { $ref: "#/components/schemas/IdName" }
+        spent_date: { type: string, format: date }
+        total_cost: { type: number }
+        units: { type: integer, nullable: true }
+        notes: { type: string, nullable: true }
+        billable: { type: boolean }
+        receipt_file_name: { type: string, nullable: true }
+        receipt_content_type: { type: string, nullable: true }
+        receipt_url: { type: string, nullable: true }
+        is_locked: { type: boolean }
+        is_billed: { type: boolean }
+        approval_status:
+          type: string
+          enum: [unsubmitted, submitted, approved, rejected]
+        source:
+          type: string
+          enum: [web, cli, api, agent]
+        metadata: { $ref: "#/components/schemas/Metadata" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ExpenseCreate:
+      type: object
+      required: [project_id, expense_category_id, spent_date]
+      properties:
+        project_id: { type: string }
+        expense_category_id: { type: string }
+        spent_date: { type: string, format: date }
+        total_cost: { type: number, minimum: 0, description: Either total_cost or units required. }
+        units: { type: integer, minimum: 1, description: Either total_cost or units required. }
+        notes: { type: string }
+        billable: { type: boolean }
+        source:
+          type: string
+          enum: [web, cli, api, agent]
+        metadata: { $ref: "#/components/schemas/Metadata" }
+
+    # ── Projects ───────────────────────────────────────────────
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        client: { $ref: "#/components/schemas/IdName" }
+        name: { type: string }
+        code: { type: string, nullable: true }
+        is_active: { type: boolean }
+        is_billable: { type: boolean }
+        is_fixed_fee: { type: boolean }
+        bill_by: { type: string }
+        hourly_rate: { type: number, nullable: true }
+        fee: { type: number, nullable: true }
+        budget_by: { type: string }
+        budget: { type: number, nullable: true }
+        budget_is_monthly: { type: boolean }
+        notify_when_over_budget: { type: boolean }
+        over_budget_notification_percentage: { type: number, nullable: true }
+        show_budget_to_all: { type: boolean }
+        cost_budget: { type: number, nullable: true }
+        cost_budget_include_expenses: { type: boolean }
+        starts_on: { type: string, format: date, nullable: true }
+        ends_on: { type: string, format: date, nullable: true }
+        notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ── Clients ────────────────────────────────────────────────
+    Client:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        address: { type: string, nullable: true }
+        currency: { type: string }
+        is_active: { type: boolean }
+        payment_terms: { type: string }
+        payment_days: { type: integer, nullable: true }
+        tax: { type: number, nullable: true }
+        tax2: { type: number, nullable: true }
+        discount: { type: number, nullable: true }
+        statement_key: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ClientCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        address: { type: string }
+        currency: { type: string, description: 3-letter ISO code. Defaults to company currency. }
+        payment_terms:
+          type: string
+          enum: [upon_receipt, net_15, net_30, net_45, net_60, custom]
+        payment_days: { type: integer }
+        tax: { type: number }
+        tax2: { type: number }
+        discount: { type: number }
+        is_active: { type: boolean }
+
+    # ── Contacts ───────────────────────────────────────────────
+    Contact:
+      type: object
+      properties:
+        id: { type: string }
+        client: { $ref: "#/components/schemas/IdName" }
+        first_name: { type: string }
+        last_name: { type: string, nullable: true }
+        title: { type: string, nullable: true }
+        email: { type: string, nullable: true }
+        phone_office: { type: string, nullable: true }
+        phone_mobile: { type: string, nullable: true }
+        fax: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ContactCreate:
+      type: object
+      required: [client_id, first_name]
+      properties:
+        client_id: { type: string }
+        first_name: { type: string }
+        last_name: { type: string }
+        title: { type: string }
+        email: { type: string }
+        phone_office: { type: string }
+        phone_mobile: { type: string }
+        fax: { type: string }
+
+    # ── Tasks ──────────────────────────────────────────────────
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        billable_by_default: { type: boolean }
+        default_hourly_rate: { type: number, nullable: true }
+        is_default: { type: boolean }
+        is_active: { type: boolean }
+        parent_task_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ── Users ──────────────────────────────────────────────────
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        first_name: { type: string, nullable: true }
+        last_name: { type: string, nullable: true }
+        email: { type: string }
+        telephone: { type: string, nullable: true }
+        timezone: { type: string }
+        has_access_to_all_future_projects: { type: boolean }
+        is_contractor: { type: boolean }
+        is_active: { type: boolean }
+        weekly_capacity: { type: integer, description: Seconds per week (e.g. 144000 = 40h) }
+        default_hourly_rate: { type: number, nullable: true }
+        cost_rate: { type: number, nullable: true }
+        currency: { type: string }
+        roles: { type: array, items: { type: string } }
+        user_type:
+          type: string
+          enum: [human, agent]
+        avatar_url: { type: string, nullable: true }
+        company: { $ref: "#/components/schemas/IdName" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ── Invoices ───────────────────────────────────────────────
+    Invoice:
+      type: object
+      properties:
+        id: { type: string }
+        client_id: { type: string }
+        created_by_id: { type: string }
+        client: { $ref: "#/components/schemas/IdName" }
+        creator:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string, nullable: true }
+            email: { type: string }
+        number: { type: string }
+        purchase_order: { type: string, nullable: true }
+        subject: { type: string, nullable: true }
+        state:
+          type: string
+          enum: [draft, open, paid, closed]
+        amount: { type: number }
+        due_amount: { type: number }
+        tax: { type: number, nullable: true }
+        tax_amount: { type: number, nullable: true }
+        tax2: { type: number, nullable: true }
+        tax2_amount: { type: number, nullable: true }
+        discount: { type: number, nullable: true }
+        discount_amount: { type: number, nullable: true }
+        currency: { type: string }
+        issue_date: { type: string, format: date }
+        due_date: { type: string, format: date }
+        payment_term:
+          type: string
+          enum: [upon_receipt, net_15, net_30, net_45, net_60, custom]
+        notes: { type: string, nullable: true }
+        period_start: { type: string, format: date, nullable: true }
+        period_end: { type: string, format: date, nullable: true }
+        sent_at: { type: string, format: date-time, nullable: true }
+        paid_at: { type: string, format: date-time, nullable: true }
+        closed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        line_items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LineItem"
+
+    InvoiceCreate:
+      type: object
+      required: [client_id]
+      properties:
+        client_id: { type: string }
+        subject: { type: string }
+        issue_date: { type: string, format: date, description: Defaults to today. }
+        due_date: { type: string, format: date }
+        payment_term:
+          type: string
+          enum: [upon_receipt, net_15, net_30, net_45, net_60, custom]
+          default: net_30
+        currency: { type: string }
+        purchase_order: { type: string }
+        tax: { type: number }
+        tax2: { type: number }
+        discount: { type: number }
+        notes: { type: string }
+        period_start: { type: string, format: date }
+        period_end: { type: string, format: date }
+        line_items:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, default: Service }
+              description: { type: string }
+              quantity: { type: number, default: 1 }
+              unit_price: { type: number, default: 0 }
+              taxed: { type: boolean, default: false }
+              taxed2: { type: boolean, default: false }
+              project_id: { type: string }
+
+    InvoiceUpdate:
+      type: object
+      properties:
+        subject: { type: string }
+        issue_date: { type: string, format: date }
+        due_date: { type: string, format: date }
+        purchase_order: { type: string }
+        tax: { type: number }
+        tax2: { type: number }
+        discount: { type: number }
+        notes: { type: string }
+        period_start: { type: string, format: date }
+        period_end: { type: string, format: date }
+
+    LineItem:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        description: { type: string, nullable: true }
+        quantity: { type: number }
+        unit_price: { type: number }
+        amount: { type: number }
+        taxed: { type: boolean }
+        taxed2: { type: boolean }
+        project_id: { type: string, nullable: true }
+
+    # ── Invoice Messages ───────────────────────────────────────
+    InvoiceMessage:
+      type: object
+      properties:
+        id: { type: string }
+        invoice_id: { type: string }
+        sent_by: { type: string, nullable: true }
+        sent_by_email: { type: string, nullable: true }
+        sent_from: { type: string, nullable: true }
+        sent_from_email: { type: string, nullable: true }
+        recipients: {}
+        subject: { type: string, nullable: true }
+        body: { type: string, nullable: true }
+        attach_pdf: { type: boolean }
+        send_me_a_copy: { type: boolean }
+        thank_you: { type: boolean }
+        reminder: { type: boolean }
+        event_type: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    InvoiceMessageCreate:
+      type: object
+      required: [recipients]
+      properties:
+        recipients:
+          type: array
+          items:
+            type: object
+            required: [name, email]
+            properties:
+              name: { type: string }
+              email: { type: string, format: email }
+        subject: { type: string }
+        body: { type: string }
+        attach_pdf: { type: boolean, default: true }
+        send_me_a_copy: { type: boolean, default: false }
+        include_attachments: { type: boolean, default: false }
+        event_type:
+          type: string
+          enum: [send, reminder, thank_you]
+          default: send
+
+    # ── Reports ────────────────────────────────────────────────
+    TeamTimeResult:
+      type: object
+      properties:
+        user_id: { type: string }
+        user_name: { type: string }
+        is_contractor: { type: boolean }
+        weekly_capacity: { type: integer, description: Seconds per week }
+        avatar_url: { type: string, nullable: true }
+        total_hours: { type: number }
+        billable_hours: { type: number }
+        currency: { type: string }
+        billable_amount: { type: number }

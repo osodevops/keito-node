@@ -1,0 +1,66 @@
+name: Regenerate Types
+
+on:
+  repository_dispatch:
+    types: [openapi-spec-updated]
+  workflow_dispatch:
+    inputs:
+      spec_repo:
+        description: "Repo to fetch spec from (owner/repo)"
+        default: "osodevops/keito"
+      spec_path:
+        description: "Path to spec in repo"
+        default: "docs/openapi-v2.yaml"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Fetch latest spec
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.event.inputs.spec_repo || 'osodevops/keito' }}"
+          SPEC_PATH="${{ github.event.inputs.spec_path || 'docs/openapi-v2.yaml' }}"
+          gh api "repos/${REPO}/contents/${SPEC_PATH}" \
+            --jq '.content' | base64 -d > openapi/openapi-v2.yaml
+
+      - run: npm run generate
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet openapi/ src/generated/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/regenerate-types
+          commit-message: "chore: regenerate types from updated OpenAPI spec"
+          title: "chore: regenerate types from updated OpenAPI spec"
+          body: |
+            Auto-generated PR from updated OpenAPI spec.
+
+            - Fetched latest spec from upstream
+            - Regenerated `src/generated/openapi.d.ts`
+            - Type checking and tests pass
+
+            Review the diff and merge to trigger a release.
