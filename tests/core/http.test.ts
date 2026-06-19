@@ -124,11 +124,24 @@ describe('HttpClient', () => {
       ok: false,
       status: 409,
       headers: new Headers(),
-      json: async () => ({ error: 'conflict', error_description: 'entry approved' }),
+      json: async () => ({
+        error: 'running_timer_conflict',
+        error_description: 'A timer is already running.',
+        running_entry: { id: 'te_running' },
+        running_entry_count: 1,
+      }),
     });
     const client = makeClient();
 
-    await expect(client.request('DELETE', '/test')).rejects.toThrow(KeitoConflictError);
+    try {
+      await client.request('POST', '/test');
+    } catch (e) {
+      expect(e).toBeInstanceOf(KeitoConflictError);
+      expect((e as KeitoConflictError).error).toBe('running_timer_conflict');
+      expect((e as KeitoConflictError).body?.running_entry).toEqual({ id: 'te_running' });
+      return;
+    }
+    throw new Error('Expected KeitoConflictError');
   });
 
   it('throws KeitoRateLimitError on 429 with retryAfter', async () => {

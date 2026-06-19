@@ -2,6 +2,17 @@ import type { HttpClient } from '../core/http.js';
 import { paginate, PaginatedResponse } from '../core/pagination.js';
 import type { TimeEntry, TimeEntryCreate, TimeEntryUpdate } from '../generated/models.js';
 
+export type TimeEntrySource = 'web' | 'cli' | 'api' | 'agent' | 'calendar' | 'desktop';
+export type TimeEntryStart = Omit<TimeEntryCreate, 'hours' | 'ended_time' | 'is_running'>;
+
+export interface TimeEntryStop {
+  notes?: string | null;
+}
+
+export interface TimeEntryRestart {
+  replace_running?: boolean;
+}
+
 export interface ListTimeEntriesParams {
   page?: number;
   per_page?: number;
@@ -14,7 +25,7 @@ export interface ListTimeEntriesParams {
   from?: string;
   to?: string;
   updated_since?: string;
-  source?: 'web' | 'cli' | 'api' | 'agent';
+  source?: TimeEntrySource;
 }
 
 export class TimeEntries {
@@ -28,8 +39,25 @@ export class TimeEntries {
     return this.http.request<TimeEntry>('POST', '/api/v2/time_entries', { body });
   }
 
+  async startTimer(body: TimeEntryStart): Promise<TimeEntry> {
+    return this.http.request<TimeEntry>('POST', '/api/v2/time_entries', {
+      body: {
+        ...body,
+        is_running: true,
+      },
+    });
+  }
+
   async update(id: string, body: TimeEntryUpdate): Promise<TimeEntry> {
     return this.http.request<TimeEntry>('PATCH', `/api/v2/time_entries/${id}`, { body });
+  }
+
+  async stopTimer(id: string, body: TimeEntryStop = {}): Promise<TimeEntry> {
+    return this.http.request<TimeEntry>('PATCH', `/api/v2/time_entries/${id}/stop`, { body });
+  }
+
+  async restartTimer(id: string, body: TimeEntryRestart = {}): Promise<TimeEntry> {
+    return this.http.request<TimeEntry>('PATCH', `/api/v2/time_entries/${id}/restart`, { body });
   }
 
   async delete(id: string): Promise<void> {

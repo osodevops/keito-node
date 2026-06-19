@@ -87,7 +87,7 @@ The SDK follows a resource-based architecture. Each API resource is accessed as 
 
 | Resource | Methods | Description |
 |----------|---------|-------------|
-| `client.timeEntries` | `list` `create` `update` `delete` | Log and manage billable time |
+| `client.timeEntries` | `list` `create` `startTimer` `stopTimer` `restartTimer` `update` `delete` | Log and manage billable time |
 | `client.expenses` | `list` `create` | Track expenses and compute costs |
 | `client.projects` | `list` | Browse projects |
 | `client.clients` | `list` `get` `create` `update` | Manage client records |
@@ -122,6 +122,20 @@ const entry = await client.timeEntries.create({
   hours: 2.0,
   source: 'agent',
   billable: true,
+});
+
+// Start a running timer. Omit started_time to start at the server's current time.
+const timer = await client.timeEntries.startTimer({
+  project_id: 'proj_123',
+  task_id: 'task_456',
+  spent_date: new Date().toISOString().split('T')[0],
+  source: 'agent',
+  replace_running: true,
+});
+
+// Stop a running timer. The API calculates elapsed duration server-side.
+await client.timeEntries.stopTimer(timer.id, {
+  notes: 'Finished implementation',
 });
 
 // Update a time entry

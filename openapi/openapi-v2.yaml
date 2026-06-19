@@ -79,7 +79,7 @@ paths:
           schema: { type: string, format: date-time }
         - name: source
           in: query
-          schema: { type: string, enum: [web, cli, api, agent] }
+          schema: { type: string, enum: [web, cli, api, agent, calendar, desktop] }
           description: Filter by entry source. Comma-separated for multiple (e.g. `agent,cli`).
       responses:
         "200":
@@ -118,6 +118,12 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Conflict — another timer is already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v2/time_entries/{id}:
     parameters:
@@ -164,6 +170,72 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: Conflict — entry is approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v2/time_entries/{id}/stop:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: Time entry CUID
+
+    patch:
+      tags: [Time Entries]
+      summary: Stop a running time entry
+      operationId: stopTimeEntry
+      description: Stops a running timer and calculates elapsed duration server-side.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryStop"
+      responses:
+        "200":
+          description: Stopped time entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v2/time_entries/{id}/restart:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+        description: Time entry CUID
+
+    patch:
+      tags: [Time Entries]
+      summary: Restart a stopped time entry
+      operationId: restartTimeEntry
+      description: Restarts a stopped entry as the active timer. Pass `replace_running` to intentionally switch timers.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryRestart"
+      responses:
+        "200":
+          description: Restarted time entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Conflict — another timer is already running
           content:
             application/json:
               schema:
@@ -720,6 +792,7 @@ components:
     # ── Common ─────────────────────────────────────────────────
     Error:
       type: object
+      additionalProperties: true
       properties:
         error:
           type: string
@@ -784,7 +857,7 @@ components:
         cost_rate: { type: number, nullable: true }
         source:
           type: string
-          enum: [web, cli, api, agent]
+          enum: [web, cli, api, agent, calendar, desktop]
         metadata: { $ref: "#/components/schemas/Metadata" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -801,12 +874,28 @@ components:
         notes: { type: string }
         billable: { type: boolean }
         is_running: { type: boolean }
+        replace_running:
+          type: boolean
+          description: When true with is_running, stop any current running timer before creating this one.
         started_time: { type: string, description: "HH:mm" }
         ended_time: { type: string, description: "HH:mm" }
         source:
           type: string
-          enum: [web, cli, api, agent]
+          enum: [web, cli, api, agent, calendar, desktop]
         metadata: { $ref: "#/components/schemas/Metadata" }
+
+    TimeEntryStop:
+      type: object
+      properties:
+        notes:
+          type: string
+          nullable: true
+
+    TimeEntryRestart:
+      type: object
+      properties:
+        replace_running:
+          type: boolean
 
     TimeEntryUpdate:
       type: object
