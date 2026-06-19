@@ -127,11 +127,19 @@ export class HttpClient {
   private async parseError(response: Response): Promise<KeitoApiError> {
     let error = 'unknown_error';
     let error_description = '';
+    let body: Record<string, unknown> | null = null;
 
     try {
-      const body = await response.json();
-      error = body.error ?? error;
-      error_description = body.error_description ?? '';
+      const parsed = await response.json();
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        body = parsed as Record<string, unknown>;
+      }
+      if (typeof body?.error === 'string') {
+        error = body.error;
+      }
+      if (typeof body?.error_description === 'string') {
+        error_description = body.error_description;
+      }
     } catch {
       // response body not JSON
     }
@@ -141,17 +149,17 @@ export class HttpClient {
 
     switch (status) {
       case 401:
-        return new KeitoAuthError(error, error_description, headers);
+        return new KeitoAuthError(error, error_description, headers, body);
       case 403:
-        return new KeitoForbiddenError(error, error_description, headers);
+        return new KeitoForbiddenError(error, error_description, headers, body);
       case 404:
-        return new KeitoNotFoundError(error, error_description, headers);
+        return new KeitoNotFoundError(error, error_description, headers, body);
       case 409:
-        return new KeitoConflictError(error, error_description, headers);
+        return new KeitoConflictError(error, error_description, headers, body);
       case 429:
-        return new KeitoRateLimitError(error, error_description, headers);
+        return new KeitoRateLimitError(error, error_description, headers, body);
       default:
-        return new KeitoApiError(status, error, error_description, headers);
+        return new KeitoApiError(status, error, error_description, headers, body);
     }
   }
 

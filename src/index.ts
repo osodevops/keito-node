@@ -16,7 +16,13 @@ export { OutcomeTypes, type OutcomeType } from './outcome-types.js';
 export { VERSION } from './version.js';
 
 // Resource types
-export type { ListTimeEntriesParams } from './resources/time-entries.js';
+export type {
+  ListTimeEntriesParams,
+  TimeEntryRestart,
+  TimeEntrySource,
+  TimeEntryStart,
+  TimeEntryStop,
+} from './resources/time-entries.js';
 export type { ListExpensesParams } from './resources/expenses.js';
 export type { ListProjectsParams } from './resources/projects.js';
 export type { ListClientsParams } from './resources/clients.js';

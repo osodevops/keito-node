@@ -51,6 +51,52 @@ export interface paths {
         patch: operations["updateTimeEntry"];
         trace?: never;
     };
+    "/api/v2/time_entries/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Stop a running time entry
+         * @description Stops a running timer and calculates elapsed duration server-side.
+         */
+        patch: operations["stopTimeEntry"];
+        trace?: never;
+    };
+    "/api/v2/time_entries/{id}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Restart a stopped time entry
+         * @description Restarts a stopped entry as the active timer. Pass `replace_running` to intentionally switch timers.
+         */
+        patch: operations["restartTimeEntry"];
+        trace?: never;
+    };
     "/api/v2/expenses": {
         parameters: {
             query?: never;
@@ -286,6 +332,8 @@ export interface components {
             error?: string;
             /** @example project_id is required */
             error_description?: string;
+        } & {
+            [key: string]: unknown;
         };
         PaginationLinks: {
             first?: string;
@@ -335,7 +383,7 @@ export interface components {
             billable_rate?: number | null;
             cost_rate?: number | null;
             /** @enum {string} */
-            source?: "web" | "cli" | "api" | "agent";
+            source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop";
             metadata?: components["schemas"]["Metadata"];
             /** Format: date-time */
             created_at?: string;
@@ -353,13 +401,21 @@ export interface components {
             notes?: string;
             billable?: boolean;
             is_running?: boolean;
+            /** @description When true with is_running, stop any current running timer before creating this one. */
+            replace_running?: boolean;
             /** @description HH:mm */
             started_time?: string;
             /** @description HH:mm */
             ended_time?: string;
             /** @enum {string} */
-            source?: "web" | "cli" | "api" | "agent";
+            source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop";
             metadata?: components["schemas"]["Metadata"];
+        };
+        TimeEntryStop: {
+            notes?: string | null;
+        };
+        TimeEntryRestart: {
+            replace_running?: boolean;
         };
         TimeEntryUpdate: {
             project_id?: string;
@@ -773,7 +829,7 @@ export interface operations {
                 to?: string;
                 updated_since?: string;
                 /** @description Filter by entry source. Comma-separated for multiple (e.g. `agent,cli`). */
-                source?: "web" | "cli" | "api" | "agent";
+                source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop";
             };
             header?: never;
             path?: never;
@@ -821,6 +877,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description Conflict — another timer is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     deleteTimeEntry: {
@@ -883,6 +948,75 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    stopTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TimeEntryStop"];
+            };
+        };
+        responses: {
+            /** @description Stopped time entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntry"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    restartTimeEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TimeEntryRestart"];
+            };
+        };
+        responses: {
+            /** @description Restarted time entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeEntry"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Conflict — another timer is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listExpenses: {
