@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
-  validatePublicationRequest, validateRelease, validatePackageIdentity,
+  validatePublicationRequest, validateInvocationSource, validateRelease, validatePackageIdentity,
   verifyUnpublishedVersion, verifyPublication,
 } from '../scripts/verify-npm-publication.mjs';
 
@@ -35,9 +35,10 @@ describe('npm publication workflow', () => {
     }
   });
 
-  it('preserves builder identity while attributing provenance to the verified source', () => {
-    expect(workflow).toContain('env GITHUB_SHA="$RELEASE_SHA" GITHUB_REF="refs/tags/$PUBLICATION_TAG"');
-    expect(workflow).not.toMatch(/(?:env |^\s+)(?:GITHUB_WORKFLOW_REF|GITHUB_RUN_ID|ACTIONS_ID_TOKEN_REQUEST_TOKEN)=/m);
+  it('leaves all genuine GitHub source and identity fields unchanged for certificate verification', () => {
+    expect(workflow).not.toMatch(/(?:env |^\s+)(?:GITHUB_[A-Z_]+|ACTIONS_ID_TOKEN_REQUEST_TOKEN)=/m);
+    expect(workflow).not.toMatch(/^\s+GITHUB_(?:SHA|REF|WORKFLOW_REF):/m);
+    expect(workflow).toContain('ref: ${{ github.sha }}');
     expect(workflow).toContain('node "$RUNNER_TEMP/verify-npm-publication.mjs" --checked-out');
     expect(workflow.indexOf('--checked-out')).toBeLessThan(workflow.indexOf('npm publish --provenance'));
   });
@@ -46,6 +47,7 @@ describe('npm publication workflow', () => {
 const validEnv = {
   GITHUB_REPOSITORY: 'osodevops/keito-node', GITHUB_REF: 'refs/heads/main',
   GITHUB_EVENT_NAME: 'workflow_dispatch', PUBLICATION_TAG: 'v0.1.1',
+  GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   GITHUB_WORKFLOW_REF: 'osodevops/keito-node/.github/workflows/release-please.yml@refs/heads/main',
 };
 const manifest = { name: '@keito-ai/sdk', version: '0.1.1', repository: { url: 'git+https://github.com/osodevops/keito-node.git' } };
@@ -67,6 +69,7 @@ describe('publication admission', () => {
     { GITHUB_REPOSITORY: 'other/fork' }, { GITHUB_REF: 'refs/heads/feature' },
     { GITHUB_REF: 'refs/tags/v0.1.1' },
     { GITHUB_WORKFLOW_REF: 'osodevops/keito-node/.github/workflows/other.yml@refs/heads/main' },
+    { GITHUB_SHA: '' }, { GITHUB_SHA: 'not-a-commit' },
   ])('rejects other event/ref/repository contexts %j', change => {
     expect(() => validatePublicationRequest({ ...validEnv, ...change })).toThrow();
   });
@@ -80,6 +83,14 @@ describe('publication admission', () => {
     for (const change of [{ tag_name: 'v0.1.2' }, { draft: true }, { prerelease: true }]) {
       expect(() => validateRelease({ ...release, ...change }, 'v0.1.1')).toThrow();
     }
+  });
+
+  it('rejects the source/invocation pair captured in npm E422 from run 41287256698', () => {
+    const releaseSha = '43101e9d040bf8238d09e062332f9feacc5a6d9b';
+    const invocation = Object.freeze({ GITHUB_SHA: 'b2774be6b48997dcf110975c093c50f07929eac4', GITHUB_REF: 'refs/heads/main' });
+    expect(() => validateInvocationSource(releaseSha, invocation)).toThrow('Release commit differs from workflow invocation');
+    expect(() => validateInvocationSource(invocation.GITHUB_SHA, invocation)).not.toThrow();
+    expect(invocation.GITHUB_REF).toBe('refs/heads/main');
   });
 
   it('binds tag, package, lockfile, repository and runtime versions', () => {
@@ -125,6 +136,7 @@ describe('real Git release source verification', () => {
   let directory: string;
   let checkout: string;
   let releasedSha: string;
+  let unrelatedSha: string;
   const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
   beforeAll(() => {
@@ -146,6 +158,7 @@ describe('real Git release source verification', () => {
     git(source, 'commit', '--allow-empty', '-m', 'Later trusted workflow');
     git(source, 'checkout', '--orphan', 'unrelated');
     git(source, 'commit', '-m', 'Unrelated history');
+    unrelatedSha = git(source, 'rev-parse', 'HEAD');
     git(source, 'tag', 'v9.9.9');
     git(source, 'push', 'origin', 'main', '--tags');
     checkout = join(directory, 'checkout');
@@ -153,22 +166,32 @@ describe('real Git release source verification', () => {
   });
   afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
-  it('selects the released tag SHA rather than the later main workflow SHA', async () => {
-    const result = await verifyPublication(validEnv, { cwd: checkout, readRelease: async () => release, fetchRegistry: registry() });
+  it('allows the original matching invocation even when remote main subsequently advanced', async () => {
+    const result = await verifyPublication({ ...validEnv, GITHUB_SHA: releasedSha }, { cwd: checkout, readRelease: async () => release, fetchRegistry: registry() });
     expect(result.sha).toBe(releasedSha);
     expect(result.sha).not.toBe(git(checkout, 'rev-parse', 'HEAD'));
+  });
+
+  it('rejects a released-tag retry from a newer workflow invocation, as npm certificate verification requires', async () => {
+    const readRelease = vi.fn(async () => release);
+    const fetchRegistry = registry();
+    await expect(verifyPublication({ ...validEnv, GITHUB_SHA: git(checkout, 'rev-parse', 'HEAD') }, {
+      cwd: checkout, readRelease, fetchRegistry,
+    })).rejects.toThrow('Release commit differs from workflow invocation');
+    expect(readRelease).not.toHaveBeenCalled();
+    expect(fetchRegistry).not.toHaveBeenCalled();
   });
 
   it('refuses a tag outside main and a missing tag before reading release data', async () => {
     const readRelease = vi.fn();
     for (const tag of ['v9.9.9', 'v8.8.8']) {
-      await expect(verifyPublication({ ...validEnv, PUBLICATION_TAG: tag }, { cwd: checkout, readRelease, fetchRegistry: registry() })).rejects.toThrow();
+      await expect(verifyPublication({ ...validEnv, GITHUB_SHA: unrelatedSha, PUBLICATION_TAG: tag }, { cwd: checkout, readRelease, fetchRegistry: registry() })).rejects.toThrow();
     }
     expect(readRelease).not.toHaveBeenCalled();
   });
 
   it('checks the actual checkout again immediately before publication', async () => {
-    const env = { ...validEnv, RELEASE_SHA: releasedSha };
+    const env = { ...validEnv, GITHUB_SHA: releasedSha, RELEASE_SHA: releasedSha };
     const options = { cwd: checkout, readRelease: async () => release, fetchRegistry: registry(), checkedOut: true };
     await expect(verifyPublication(env, options)).rejects.toThrow('Checkout does not match');
     git(checkout, 'checkout', '--detach', releasedSha);
