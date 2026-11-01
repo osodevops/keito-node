@@ -12,6 +12,7 @@ export function validatePublicationRequest(env) {
   assert.equal(env.GITHUB_REPOSITORY, repository, 'Unexpected repository');
   assert.equal(env.GITHUB_REF, 'refs/heads/main', 'Publication must run from main');
   assert.equal(env.GITHUB_WORKFLOW_REF, `${repository}/.github/workflows/release-please.yml@refs/heads/main`, 'Unexpected publishing workflow identity');
+  assert(/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? ''), 'Missing or invalid genuine workflow commit');
   assert(
     env.GITHUB_EVENT_NAME === 'workflow_dispatch' ||
     (env.GITHUB_EVENT_NAME === 'push' && env.RELEASE_CREATED === 'true'),
@@ -20,6 +21,10 @@ export function validatePublicationRequest(env) {
   const tag = env.PUBLICATION_TAG ?? '';
   assert(tag.startsWith('v') && stableVersion.test(tag.slice(1)), 'Expected a stable vX.Y.Z release tag');
   return { tag, version: tag.slice(1) };
+}
+
+export function validateInvocationSource(sha, env) {
+  assert.equal(sha, env.GITHUB_SHA, 'Release commit differs from workflow invocation; create a fresh patch release');
 }
 
 export function validateRelease(release, tag) {
@@ -74,6 +79,7 @@ export async function verifyPublication(env = process.env, options = {}) {
     `refs/tags/${selected.tag}:refs/tags/${selected.tag}`);
   const sha = git('rev-parse', '--verify', `refs/tags/${selected.tag}^{commit}`);
   assert(/^[a-f0-9]{40}$/.test(sha), 'Invalid released commit');
+  validateInvocationSource(sha, env);
   git('merge-base', '--is-ancestor', sha, 'refs/remotes/origin/main');
   const release = options.readRelease
     ? await options.readRelease(selected.tag)

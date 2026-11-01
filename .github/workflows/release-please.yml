@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -78,10 +78,8 @@ jobs:
       - name: Publish the verified release using npm trusted publishing
         run: |
           node "$RUNNER_TEMP/verify-npm-publication.mjs" --checked-out
-          # npm provenance reads these source fields from its process environment.
-          # Preserve GITHUB_WORKFLOW_REF and all OIDC/run identity fields.
-          env GITHUB_SHA="$RELEASE_SHA" GITHUB_REF="refs/tags/$PUBLICATION_TAG" \
-            npm publish --provenance --access public --tag latest --registry=https://registry.npmjs.org
+          # npm verifies provenance source fields against the genuine OIDC certificate.
+          npm publish --provenance --access public --tag latest --registry=https://registry.npmjs.org
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLICATION_TAG: ${{ steps.release.outputs.tag }}
