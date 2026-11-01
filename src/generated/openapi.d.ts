@@ -4169,7 +4169,7 @@ export interface operations {
                     "application/json": components["schemas"]["ExpenseReimbursementClassification"];
                 };
             };
-            /** @description Invalid JSON */
+            /** @description Invalid JSON, missing version or classification, or an unsupported field. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4183,7 +4183,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Expense feature */
+            /** @description Expense feature, reimbursement opt-in, plan or current authority is unavailable. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4197,7 +4197,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Stale version */
+            /** @description Stale version, protected expense or repayment history, or idempotency/workspace conflict. */
             409: {
                 headers: {
                     [name: string]: unknown;

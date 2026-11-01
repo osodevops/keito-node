@@ -155,11 +155,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExpenseReimbursementClassification"
-        "400": { description: Invalid JSON, missing version or classification, or an unsupported field. }
+        "400": { description: "Invalid JSON, missing version or classification, or an unsupported field." }
         "401": { description: Authentication required. }
-        "403": { description: Expense feature, reimbursement opt-in, plan or current authority is unavailable. }
+        "403": { description: "Expense feature, reimbursement opt-in, plan or current authority is unavailable." }
         "404": { description: Expense not found in the authenticated workspace. }
-        "409": { description: Stale version, protected expense or repayment history, or idempotency/workspace conflict. }
+        "409": { description: "Stale version, protected expense or repayment history, or idempotency/workspace conflict." }
   /api/v2/clickup/locations:
     get:
       tags: [ClickUp]
