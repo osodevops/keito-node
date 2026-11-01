@@ -3,14 +3,23 @@ name: Release Please
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable GitHub release tag to publish (for example v0.1.1)
+        required: true
+        type: string
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -23,24 +32,58 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: >-
+      ${{ !cancelled() && github.repository == 'osodevops/keito-node' && github.ref == 'refs/heads/main' &&
+          ((github.event_name == 'push' && needs.release-please.outputs.release_created == 'true') ||
+           (github.event_name == 'workflow_dispatch' && needs.release-please.result == 'skipped')) }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: '24'
           registry-url: https://registry.npmjs.org
+      # Pin an OIDC-capable npm rather than relying on the runner's bundled CLI.
+      - run: npm install --global npm@11.21.1
+      - name: Verify the existing release and unpublished registry version
+        id: release
+        run: |
+          node scripts/verify-npm-publication.mjs
+          cp scripts/verify-npm-publication.mjs "$RUNNER_TEMP/verify-npm-publication.mjs"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION_TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+          RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
+      - name: Check out the verified release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+          persist-credentials: false
       - run: npm ci
       - run: npm run generate
       - run: git diff --exit-code -- src/generated/
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:package
-      - run: npm publish --provenance --access public
+      - name: Publish the verified release using npm trusted publishing
+        run: |
+          node "$RUNNER_TEMP/verify-npm-publication.mjs" --checked-out
+          # npm provenance reads these source fields from its process environment.
+          # Preserve GITHUB_WORKFLOW_REF and all OIDC/run identity fields.
+          env GITHUB_SHA="$RELEASE_SHA" GITHUB_REF="refs/tags/$PUBLICATION_TAG" \
+            npm publish --provenance --access public --tag latest --registry=https://registry.npmjs.org
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
