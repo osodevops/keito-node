@@ -1,6 +1,6 @@
 {
   "name": "@keito-ai/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Official Node.js SDK for the Keito API — time tracking, expenses, and invoicing for humans and AI agents",
   "license": "MIT",
   "type": "module",
