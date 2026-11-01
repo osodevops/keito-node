@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/osodevops/keito-node/compare/v0.1.1...v0.1.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* bind npm provenance to the genuine release invocation ([#6](https://github.com/osodevops/keito-node/issues/6)) ([7efdefa](https://github.com/osodevops/keito-node/commit/7efdefaf5dfa880300642450aa838689a66f53fa))
+
 ## [0.1.1](https://github.com/osodevops/keito-node/compare/v0.1.0...v0.1.1) (2026-11-01)
 
 
