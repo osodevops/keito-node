@@ -119,8 +119,6 @@ export class HttpClient {
           redirect: 'error',
         });
 
-        clearTimeout(timer);
-
         if (response.ok) {
           if (response.status === 204) return undefined as T;
           if (options?.responseType === 'blob') return (await response.blob()) as T;
@@ -136,8 +134,6 @@ export class HttpClient {
 
         throw error;
       } catch (err) {
-        clearTimeout(timer);
-
         if (err instanceof KeitoApiError) throw err;
 
         if (err instanceof DOMException && err.name === 'AbortError') {
@@ -156,6 +152,8 @@ export class HttpClient {
         throw new KeitoConnectionError(
           err instanceof Error ? err : undefined,
         );
+      } finally {
+        clearTimeout(timer);
       }
     }
 

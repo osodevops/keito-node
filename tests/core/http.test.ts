@@ -295,6 +295,15 @@ describe('HttpClient', () => {
     await expect(client.request('GET', '/test')).rejects.toThrow(KeitoTimeoutError);
   });
 
+  it.each(['json', 'blob'] as const)('keeps the timeout active while reading the %s response body', async responseType => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const signal = init!.signal!;
+      const body = () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Body read aborted', 'AbortError'))));
+      return { ok: true, status: 200, headers: new Headers(), json: body, blob: body } as Response;
+    });
+    await expect(makeClient({ timeout: 10, maxRetries: 0 }).request('GET', '/api/v2/expenses/expense/receipt', { responseType })).rejects.toThrow(KeitoTimeoutError);
+  });
+
   it('skips undefined/null query params', async () => {
     const spy = mockFetch({ ok: true, status: 200, json: async () => ({}) });
     const client = makeClient();
