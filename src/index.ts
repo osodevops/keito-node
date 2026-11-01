@@ -1,5 +1,5 @@
 export { Keito } from './client.js';
-export { type KeitoClientOptions } from './core/http.js';
+export { type KeitoClientOptions, type RequestOptions } from './core/http.js';
 export {
   KeitoError,
   KeitoApiError,
@@ -46,6 +46,8 @@ export type {
   TimeEntryUpdate,
   Expense,
   ExpenseCreate,
+  ExpenseUpdate,
+  ExpenseReceipt,
   Project,
   Client,
   ClientCreate,

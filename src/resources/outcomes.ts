@@ -1,11 +1,12 @@
 import type { HttpClient } from '../core/http.js';
 import type { TimeEntry } from '../generated/models.js';
+import type { TimeEntrySource } from './time-entries.js';
 
 export interface OutcomeLogParams {
   project_id: string;
   task_id: string;
   spent_date: string;
-  source?: 'agent';
+  source?: TimeEntrySource;
   outcome: {
     type: string;
     description: string;

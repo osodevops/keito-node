@@ -15,6 +15,8 @@ export type TimeEntryUpdate = components['schemas']['TimeEntryUpdate'];
 // Expenses
 export type Expense = components['schemas']['Expense'];
 export type ExpenseCreate = components['schemas']['ExpenseCreate'];
+export type ExpenseUpdate = components['schemas']['ExpenseUpdate'];
+export type ExpenseReceipt = components['schemas']['ExpenseReceipt'];
 
 // Projects
 export type Project = components['schemas']['Project'];

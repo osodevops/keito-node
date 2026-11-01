@@ -20,6 +20,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run generate
+      - run: git diff --exit-code -- src/generated/
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      - run: npm run test:package

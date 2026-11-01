@@ -8,20 +8,60 @@ import {
   KeitoNotFoundError,
   KeitoRateLimitError,
   KeitoTimeoutError,
+  KeitoError,
 } from './errors.js';
 
 export interface KeitoClientOptions {
-  apiKey: string;
-  accountId: string;
+  apiKey?: string;
+  accountId?: string;
   baseUrl?: string;
   maxRetries?: number;
   timeout?: number;
 }
 
-const DEFAULT_BASE_URL = 'https://app.keito.io';
+export interface RequestOptions {
+  /** Reuse this key only for an identical retry on an endpoint that supports idempotency. */
+  idempotencyKey?: string;
+}
+
+interface HttpRequestOptions extends RequestOptions {
+  body?: unknown;
+  query?: Record<string, unknown>;
+  formData?: FormData;
+  responseType?: 'json' | 'blob';
+  retry?: boolean;
+}
+
+const DEFAULT_BASE_URL = 'https://app.keito.ai';
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_TIMEOUT = 30_000;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+
+function environment(name: string): string | undefined {
+  const runtime = globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } };
+  return runtime.process?.env?.[name];
+}
+
+function credential(value: string | undefined, option: string, variable: string): string {
+  const resolved = value ?? environment(variable);
+  if (typeof resolved !== 'string' || !resolved.trim()) {
+    throw new KeitoError(`Provide ${option} or set ${variable}.`);
+  }
+  return resolved;
+}
+
+function normalizeBaseUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    const pathname = url.pathname.replace(/\/+$/, '');
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || !['', '/api/v2'].includes(pathname)) {
+      throw new Error('Invalid base URL');
+    }
+    return url.origin;
+  } catch {
+    throw new KeitoError('baseUrl must be an HTTP(S) origin, optionally ending in /api/v2, without credentials, query or fragment.');
+  }
+}
 
 export class HttpClient {
   readonly baseUrl: string;
@@ -30,10 +70,10 @@ export class HttpClient {
   private readonly maxRetries: number;
   private readonly timeout: number;
 
-  constructor(options: KeitoClientOptions) {
-    this.apiKey = options.apiKey;
-    this.accountId = options.accountId;
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+  constructor(options: KeitoClientOptions = {}) {
+    this.apiKey = credential(options.apiKey, 'apiKey', 'KEITO_API_KEY');
+    this.accountId = credential(options.accountId, 'accountId', 'KEITO_ACCOUNT_ID');
+    this.baseUrl = normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
   }
@@ -41,20 +81,28 @@ export class HttpClient {
   async request<T>(
     method: string,
     path: string,
-    options?: { body?: unknown; query?: Record<string, unknown> },
+    options?: HttpRequestOptions,
   ): Promise<T> {
     const url = this.buildUrl(path, options?.query);
+    const key = options?.idempotencyKey;
+    if (key !== undefined && !/^[A-Za-z0-9._-]{8,255}$/.test(key)) {
+      throw new KeitoError('idempotencyKey must contain 8–255 letters, numbers, dots, underscores or hyphens.');
+    }
+    const canRetry = options?.retry !== false && !options?.formData && (['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase()) || key !== undefined);
+    const maxRetries = canRetry ? this.maxRetries : 0;
+    const body = options?.formData ?? (options?.body === undefined ? undefined : JSON.stringify(options.body));
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
       'Keito-Account-Id': this.accountId,
       'User-Agent': `keito-node-sdk/${VERSION}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      ...(options?.formData ? {} : { 'Content-Type': 'application/json' }),
+      'Accept': options?.responseType === 'blob' ? '*/*' : 'application/json',
+      ...(key === undefined ? {} : { 'Idempotency-Key': key }),
     };
 
     let lastError: Error | undefined;
 
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
         await this.sleep(this.backoff(attempt, lastError));
       }
@@ -66,39 +114,37 @@ export class HttpClient {
         const response = await fetch(url, {
           method,
           headers,
-          body: options?.body ? JSON.stringify(options.body) : undefined,
+          body,
           signal: controller.signal,
+          redirect: 'error',
         });
-
-        clearTimeout(timer);
 
         if (response.ok) {
           if (response.status === 204) return undefined as T;
+          if (options?.responseType === 'blob') return (await response.blob()) as T;
           return (await response.json()) as T;
         }
 
         const error = await this.parseError(response);
 
-        if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < this.maxRetries) {
+        if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < maxRetries) {
           lastError = error;
           continue;
         }
 
         throw error;
       } catch (err) {
-        clearTimeout(timer);
-
         if (err instanceof KeitoApiError) throw err;
 
         if (err instanceof DOMException && err.name === 'AbortError') {
-          if (attempt < this.maxRetries) {
+          if (attempt < maxRetries) {
             lastError = new KeitoTimeoutError();
             continue;
           }
           throw new KeitoTimeoutError();
         }
 
-        if (attempt < this.maxRetries) {
+        if (attempt < maxRetries) {
           lastError = err instanceof Error ? err : new Error(String(err));
           continue;
         }
@@ -106,6 +152,8 @@ export class HttpClient {
         throw new KeitoConnectionError(
           err instanceof Error ? err : undefined,
         );
+      } finally {
+        clearTimeout(timer);
       }
     }
 
@@ -113,7 +161,13 @@ export class HttpClient {
   }
 
   private buildUrl(path: string, query?: Record<string, unknown>): string {
+    if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\')) {
+      throw new KeitoError('Resource path must be a relative absolute-path reference on the configured origin.');
+    }
     const url = new URL(path, this.baseUrl);
+    if (url.origin !== this.baseUrl) {
+      throw new KeitoError('Resource path must stay on the configured origin.');
+    }
     if (query) {
       for (const [key, value] of Object.entries(query)) {
         if (value !== undefined && value !== null) {

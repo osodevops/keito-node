@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/npm/l/@keito-ai/sdk?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Node](https://img.shields.io/node/v/@keito-ai/sdk?style=flat-square)](https://nodejs.org/)
 
-The official Node.js SDK for the [Keito API](https://keito.io) — track billable time, expenses, and invoices for humans and AI agents.
+The official Node.js SDK for the [Keito API](https://keito.ai) — track billable time, expenses, and invoices for humans and AI agents.
 
 Keito is the first purpose-built **billable work tracker for AI agents**, capturing not just what agents cost, but what they earn. The SDK supports time-based, outcome-based, and hybrid billing models.
 
@@ -35,7 +35,7 @@ const entry = await client.timeEntries.create({
   spent_date: '2026-03-05',
   hours: 1.5,
   notes: 'Automated code review for PR #842',
-  source: 'agent',
+  source: 'api',
   billable: true,
   metadata: {
     agent_id: 'code-reviewer-v2',
@@ -50,7 +50,7 @@ console.log(entry.id);
 
 ## Authentication
 
-The SDK uses API key authentication. Pass your key and account ID when creating the client:
+The SDK uses API key authentication. Pass your key and Company ID when creating the client, or set `KEITO_API_KEY` and `KEITO_ACCOUNT_ID` and call `new Keito()`:
 
 ```typescript
 const client = new Keito({
@@ -65,21 +65,25 @@ We recommend using environment variables to keep your keys secure. Never commit 
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `apiKey` | *required* | Your Keito API key (`kto_...`) |
-| `accountId` | *required* | Your Keito account ID |
-| `baseUrl` | `https://app.keito.io` | API base URL |
-| `maxRetries` | `3` | Max retries for failed requests |
+| `apiKey` | `KEITO_API_KEY` environment variable | Your Keito API key (`kto_...`) |
+| `accountId` | `KEITO_ACCOUNT_ID` environment variable | Your Keito Company ID |
+| `baseUrl` | `https://app.keito.ai` | API origin; a trailing `/api/v2` is also accepted |
+| `maxRetries` | `3` | Max retries for reads and explicitly idempotent mutations |
 | `timeout` | `30000` | Request timeout in milliseconds |
 
 ```typescript
 const client = new Keito({
   apiKey: 'kto_...',
   accountId: 'acc_...',
-  baseUrl: 'https://app.keito.io',
+  baseUrl: 'https://app.keito.ai',
   maxRetries: 3,
   timeout: 30_000,
 });
 ```
+
+Explicit credentials take precedence over environment values. Missing credentials fail locally before a request. A key follows its bound identity's current permissions; use **All permitted operations** for writes. Personal read-only sync keys cannot create expenses or time entries. Keep keys in trusted server-side or local application code.
+
+`baseUrl` accepts an HTTP(S) origin, with an optional `/api/v2` suffix. Other path prefixes, URL credentials, queries and fragments are refused. Requests do not follow redirects, so configure the final API origin directly.
 
 ## Resources
 
@@ -88,7 +92,7 @@ The SDK follows a resource-based architecture. Each API resource is accessed as 
 | Resource | Methods | Description |
 |----------|---------|-------------|
 | `client.timeEntries` | `list` `create` `startTimer` `stopTimer` `restartTimer` `update` `delete` | Log and manage billable time |
-| `client.expenses` | `list` `create` | Track expenses and compute costs |
+| `client.expenses` | `list` `get` `create` `update` `delete` `uploadReceipt` `downloadReceipt` `deleteReceipt` | Track expenses and their receipt files |
 | `client.projects` | `list` | Browse projects |
 | `client.clients` | `list` `get` `create` `update` | Manage client records |
 | `client.contacts` | `list` `create` | Manage client contacts |
@@ -107,7 +111,7 @@ The SDK follows a resource-based architecture. Each API resource is accessed as 
 // List time entries with filters
 const entries = await client.timeEntries.list({
   project_id: 'proj_123',
-  source: 'agent',
+  source: 'api',
   from: '2026-03-01',
   to: '2026-03-31',
 });
@@ -120,7 +124,7 @@ const entry = await client.timeEntries.create({
   task_id: 'task_456',
   spent_date: '2026-03-05',
   hours: 2.0,
-  source: 'agent',
+  source: 'api',
   billable: true,
 });
 
@@ -129,7 +133,7 @@ const timer = await client.timeEntries.startTimer({
   project_id: 'proj_123',
   task_id: 'task_456',
   spent_date: new Date().toISOString().split('T')[0],
-  source: 'agent',
+  source: 'api',
   replace_running: true,
 });
 
@@ -157,7 +161,7 @@ const expense = await client.expenses.create({
   spent_date: '2026-03-05',
   total_cost: 4.20,
   notes: 'GPU compute for batch inference',
-  source: 'agent',
+  source: 'api',
   billable: true,
   metadata: {
     provider: 'aws',
@@ -165,7 +169,25 @@ const expense = await client.expenses.create({
     duration_minutes: 45,
   },
 });
+
+const saved = await client.expenses.get('expense_id');
+await client.expenses.update('expense_id', { notes: 'Receipt checked' }, {
+  idempotencyKey: 'expense-update-001',
+});
+
+// Use a real Blob, for example from a local PDF file's bytes.
+await client.expenses.uploadReceipt('expense_id', new Blob([pdfBytes], {
+  type: 'application/pdf',
+}), 'receipt.pdf');
+const receipt = await client.expenses.downloadReceipt('expense_id');
+const bytes = await receipt.arrayBuffer();
+await client.expenses.deleteReceipt('expense_id');
+await client.expenses.delete('expense_id');
 ```
+
+Every expense needs a visible project and an active expense category. Amount-based categories require `total_cost`; per-unit categories require `units` and use the category's configured price. The server checks editable state, approval, billing and timesheet locks.
+
+Receipt upload sends multipart field `file`, with a maximum of 9 MiB. Supported types are PDF, JPEG, PNG, GIF, WebP, HEIC, HEIF and TIFF. Keep the created expense ID when an upload fails so retrying the file does not create another expense. Receipt upload and removal are never automatically retried and do not accept an idempotency option. Uploading a receipt does not by itself select it for client invoice delivery; use `attach_receipt_to_invoice` when appropriate.
 
 ### Invoices
 
@@ -212,7 +234,7 @@ List methods return a `PaginatedResponse<T>` with built-in auto-pagination. You 
 
 ```typescript
 // Auto-paginate through all time entries
-for await (const entry of client.timeEntries.list({ source: 'agent' })) {
+for await (const entry of await client.timeEntries.list({ source: 'agent' })) {
   console.log(entry.id, entry.hours);
 }
 ```
@@ -263,7 +285,20 @@ try {
 
 ### Retries
 
-The SDK automatically retries on transient failures (status 408, 429, 500, 502, 503, 504) and network errors with exponential backoff and jitter. On 429 responses, the SDK respects the `Retry-After` header.
+Reads automatically retry transient failures (status 408, 429, 500, 502, 503, 504) and network errors with exponential backoff and jitter. On 429 responses, the SDK respects the `Retry-After` header. Mutations are not replayed automatically unless the method accepts request options and you supply an `idempotencyKey` supported by that endpoint. Multipart uploads are never replayed automatically.
+
+Expense and time-entry JSON mutations accept a final request-options argument:
+
+```typescript
+await client.expenses.create({
+  project_id: 'project_id',
+  expense_category_id: 'category_id',
+  spent_date: '2026-10-30',
+  total_cost: 24.50,
+}, { idempotencyKey: 'receipt-import-001' });
+```
+
+Use a unique key for each intended operation. Retry with the identical body and key after an uncertain result; never create a fresh key merely to bypass an unresolved response. Invalid keys fail locally. Permission changes and reused keys with different requests can produce `409`; retain the error's `body` when deciding how to recover.
 
 Retries are configurable:
 
@@ -282,7 +317,7 @@ Not all agent work is measured in hours. The SDK supports **outcome-based billin
 
 ### Logging Outcomes
 
-The `outcomes.log()` method is a convenience layer over time entries. It creates a `TimeEntry` with `hours: 0` and outcome data packed into metadata:
+The `outcomes.log()` method records a `TimeEntry` with `hours: 0` and outcome data in metadata. It does not charge a customer or move money. For general integrations, pass `source: 'api'`. The historical default remains `agent`, whose metadata must satisfy the server's separate agent-lifecycle contract:
 
 ```typescript
 import { Keito, OutcomeTypes } from '@keito-ai/sdk';
@@ -293,6 +328,7 @@ await client.outcomes.log({
   project_id: 'proj_123',
   task_id: 'task_456',
   spent_date: '2026-03-05',
+  source: 'api',
   outcome: {
     type: OutcomeTypes.TICKET_RESOLVED,
     description: 'Resolved billing inquiry #4821 via email',
@@ -335,7 +371,7 @@ You can also pass any string as a custom outcome type.
 
 ### Blended Reporting
 
-Get a combined time + outcome summary for an agent:
+Get a combined time + outcome summary for an agent. Revenue values here are local estimates calculated from visible rates and recorded metadata. They do not establish issued invoices, customer payments or settled revenue:
 
 ```typescript
 const summary = await client.reports.agentSummary({
@@ -359,7 +395,7 @@ await client.timeEntries.create({
   task_id: 'task_456',
   spent_date: '2026-03-05',
   hours: 1.5,
-  source: 'agent',
+  source: 'api',
   metadata: {
     // Agent identity
     agent_id: 'code-reviewer-v2',
@@ -436,6 +472,7 @@ npm test
 | `npm run typecheck` | Run TypeScript type checking |
 | `npm test` | Run tests with Vitest |
 | `npm run build` | Build ESM + CJS output |
+| `npm run test:package` | Build, pack and clean-install the package; verify ESM, CommonJS, declarations and mocked API examples |
 
 ## License
 

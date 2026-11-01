@@ -7,7 +7,7 @@ const specPath = resolve(root, 'openapi/openapi-v2.yaml');
 const outPath = resolve(root, 'src/generated/openapi.d.ts');
 
 console.log('Generating types from OpenAPI spec...');
-execSync(`npx openapi-typescript "${specPath}" -o "${outPath}"`, {
+execSync(`npx openapi-typescript "${specPath}" -o "${outPath}" --default-non-nullable false`, {
   cwd: root,
   stdio: 'inherit',
 });

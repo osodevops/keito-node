@@ -1,13 +1,9 @@
 import type { HttpClient } from '../core/http.js';
 import { paginate, PaginatedResponse } from '../core/pagination.js';
 import type { TeamTimeResult, TimeEntry } from '../generated/models.js';
+import type { operations } from '../generated/openapi.js';
 
-export interface TeamTimeReportParams {
-  page?: number;
-  per_page?: number;
-  from: string;
-  to: string;
-}
+export type TeamTimeReportParams = NonNullable<operations['getTeamTimeReport']['parameters']['query']>;
 
 export interface AgentSummaryParams {
   user_id: string;

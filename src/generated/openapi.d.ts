@@ -4,6 +4,105 @@
  */
 
 export interface paths {
+    "/api/v2/expenses/{id}/reimbursement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID in the authenticated workspace. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get an expense reimbursement classification
+         * @description Returns only the three-state classification and its version. Reimbursable
+         *     is true or false; null means Not classified. Requires the same administrator
+         *     or expense-owner access as the expense API and current reimbursement read
+         *     authority. Authorized historical classification remains readable after the
+         *     reimbursement workflow is disabled. Limited sync credentials and AI-app
+         *     connections do not gain access to this endpoint.
+         */
+        get: operations["getExpenseReimbursementClassification"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Classify an expense for reimbursement
+         * @description Changes only reimbursable classification using the current expense_version
+         *     returned by GET. Explicit null restores Not classified; omission is invalid.
+         *     Reuses the opted-in Pro/Business workflow, expense editing authority and
+         *     archive, invoice, import, timesheet and repayment-history protections.
+         *     A successful classification returns the expense to Unsubmitted for review.
+         *     Client billability is unchanged. This records no repayment, creates no
+         *     consultant invoice and moves no money. Existing expense create/update
+         *     payloads and response shapes are unchanged. Full-access API v2 credential
+         *     admission is unchanged; limited sync credentials and AI-app connections
+         *     do not gain access.
+         */
+        patch: operations["classifyExpenseReimbursement"];
+        trace?: never;
+    };
+    "/api/v2/clickup/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover locations through the authenticated user's ClickUp grant
+         * @description Requires clickup:mappings:read, active internal membership and either
+         *     administrator access or explicit canManageClickUpMappings delegation.
+         *     Discovery uses the caller's own connection to the selected Workspace.
+         *     With no parameters returns Spaces with Time Tracking enabled. space_id
+         *     adds Folders and folderless Lists; folder_id selects Lists in that Folder.
+         *     Repeated or unknown query parameters are rejected.
+         */
+        get: operations["listClickUpLocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/clickup/mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List mappings within the authenticated user's permitted projects
+         * @description Requires clickup:mappings:read and current mapping permission. Includes disabled mappings to retain historical identities.
+         */
+        get: operations["listClickUpMappings"];
+        /**
+         * Idempotently create or replace a versioned mapping
+         * @description Requires clickup:mappings:write and current mapping permission. Managers
+         *     must manage both the previous and new project. A required active Keito
+         *     task must belong to or be assigned to the project. Provider hierarchy is
+         *     verified through the caller's own ClickUp connection; labels are fetched
+         *     from ClickUp. Manual mappings win over automatic mappings, with List >
+         *     Folder > Space precedence. Disabled/archived overrides prevent fallback.
+         *     expectedVersion=0 creates a mapping; replacing requires its current
+         *     version. A stale version returns 409. Reuse the exact Idempotency-Key and
+         *     body to recover an uncertain result. Fresh grant/target authorization is
+         *     checked before a stored response can replay. No projects are created.
+         */
+        put: operations["upsertClickUpMapping"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/time_entries": {
         parameters: {
             query?: never;
@@ -11,10 +110,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List time entries */
+        /**
+         * List time entries
+         * @description Stored `billable_rate` is included only when authorized for the entry's project. Internal cost rates are never returned. Personal read-only sync responses include a minimal `task_assignment` (`id`, `billable`, `is_active`) but omit its rates, budgets, and totals.
+         */
         get: operations["listTimeEntries"];
         put?: never;
-        /** Create a time entry */
+        /**
+         * Create a time entry
+         * @description Supports `Idempotency-Key` for safe retries: the same key with the same body
+         *     replays the stored response (`Idempotency-Replayed: true`) for 24 hours;
+         *     the same key with a different body or under different permissions is a 409.
+         *     AI app connections (MCP connector tokens) may not create `source: calendar` entries.
+         */
         post: operations["createTimeEntry"];
         delete?: never;
         options?: never;
@@ -37,7 +145,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a time entry
-         * @description Cannot delete locked or approved entries.
+         * @description Cannot delete locked or approved entries. Supports `Idempotency-Key`. Not available to AI app connections.
          */
         delete: operations["deleteTimeEntry"];
         options?: never;
@@ -46,7 +154,8 @@ export interface paths {
          * Update a time entry
          * @description Update fields on a time entry. `source` is immutable after creation.
          *     Metadata uses merge semantics — new keys are merged into existing metadata.
-         *     Set metadata to `null` to clear it.
+         *     Set metadata to `null` to clear it. Supports `Idempotency-Key` for safe retries.
+         *     Calendar-derived entries are not found for AI app connections.
          */
         patch: operations["updateTimeEntry"];
         trace?: never;
@@ -68,10 +177,12 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Stop a running time entry
-         * @description Stops a running timer and calculates elapsed duration server-side.
+         * Stop a running timer
+         * @description Stops a running timer using server-side elapsed-time calculation. Empty request bodies are accepted.
+         *     Supports `Idempotency-Key`: a replay returns the stored response for this entry and never
+         *     stops a different timer.
          */
-        patch: operations["stopTimeEntry"];
+        patch: operations["stopTimeEntryTimer"];
         trace?: never;
     };
     "/api/v2/time_entries/{id}/restart": {
@@ -91,10 +202,170 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Restart a stopped time entry
-         * @description Restarts a stopped entry as the active timer. Pass `replace_running` to intentionally switch timers.
+         * Restart a stopped timer
+         * @description Restarts the same time-entry row as a running timer. Pass `replace_running:true` to stop any
+         *     currently running timer first. Supports `Idempotency-Key`. Not available to AI app connections.
          */
-        patch: operations["restartTimeEntry"];
+        patch: operations["restartTimeEntryTimer"];
+        trace?: never;
+    };
+    "/api/v2/time_entries/{id}/adjust_running_timer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Running time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Remove a reviewed inactive period from a running timer
+         * @description Owner-only atomic correction used after a desktop inactivity review. The
+         *     stop action ends the entry at `inactive_started_at`. The continue action
+         *     also creates a separate running entry at `resumed_at`, leaving an exact
+         *     gap. Keito does not store raw device-activity telemetry.
+         */
+        patch: operations["adjustRunningTimeEntryTimer"];
+        trace?: never;
+    };
+    "/api/v2/time_entries/{id}/external_reference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a time entry external reference
+         * @description Removes all external-reference fields. Locked entries cannot be changed.
+         */
+        delete: operations["removeTimeEntryExternalReference"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/approvals/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit your own time for approval
+         * @description Submits the authenticated person's completed, unsubmitted and unbilled time entries in
+         *     the period, exactly like "Submit for approval" on the Day and Week views, and notifies
+         *     their approvers. There is no `user_id`: submitting on behalf of a teammate is not
+         *     available through the API. Without `fingerprint` the current state is submitted; with
+         *     one, the request fails with `submission_stale` if the period changed since it was taken.
+         *     A running timer in the period returns `running_timer`. Requires the Timesheet approvals
+         *     feature (Pro or Business) switched on for the workspace. Personal read-only sync keys
+         *     cannot call this. Supports `Idempotency-Key`; a 409 releases the key.
+         */
+        post: operations["submitTimesheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/approvals/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a person's submitted time
+         * @description Approves every submitted time entry and expense for one person in the period (optionally
+         *     one project), exactly like Approve on Time > Approval. Approved time is locked and its
+         *     week refuses new or changed time (`approved_timesheet_week_locked`) until an approver
+         *     withdraws the approval in Keito.
+         *
+         *     Who may approve matches the app: owners and administrators approve anyone in the
+         *     workspace; managers approve the teammates assigned to them and, only with the
+         *     "approve time on projects they manage" permission, time on the projects they manage.
+         *     Members cannot approve. A person outside the caller's reach returns 403; a person or
+         *     project from another workspace returns 404.
+         *
+         *     Approval runs the same preflight review as the app. Blockers (for example a running
+         *     timer or unsubmitted time in the period) return `approval_blocked` and cannot be
+         *     acknowledged. Warnings (hours below expected, time outside working capacity,
+         *     overlapping entries) return `approval_warnings_unacknowledged` with the current
+         *     `preflight`; retry with its `fingerprint` as `preflight_fingerprint` and every warning
+         *     code in `acknowledged_warning_codes`. A workspace that sets Hours below expected to
+         *     "Don't warn" in Settings never returns `HOURS_BELOW_EXPECTED`; still listing that code in
+         *     `acknowledged_warning_codes` is accepted. A fingerprint that no longer matches returns
+         *     `approval_preflight_stale` with the fresh preflight. A change made while the approval
+         *     is saved returns `approval_conflict`. Supports `Idempotency-Key`; a 409 releases the key.
+         */
+        post: operations["approveTimesheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/approvals/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a person's submitted time
+         * @description Returns every submitted time entry and expense for one person in the period (optionally
+         *     one project) to unsubmitted, exactly like Reject on Time > Approval. The person is
+         *     notified with the optional `reason`. The same approver rules as
+         *     `POST /api/v2/approvals/approve` apply. Supports `Idempotency-Key`.
+         */
+        post: operations["rejectTimesheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/external_references/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Summarize time for an external object
+         * @description Returns company-wide aggregates without exposing individual time entries or rates. `last_used` is omitted when the caller cannot track time to that project.
+         */
+        get: operations["summarizeExternalReference"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v2/expenses": {
@@ -107,8 +378,108 @@ export interface paths {
         /** List expenses */
         get: operations["listExpenses"];
         put?: never;
-        /** Create an expense */
+        /**
+         * Create an expense
+         * @description Records bookkeeping data only; no payment is executed. Supports `Idempotency-Key`
+         *     for safe retries. Every expense carries the `currency` its `total_cost` is denominated in.
+         */
         post: operations["createExpense"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/expenses/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get an expense */
+        get: operations["getExpense"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an expense
+         * @description Approved, billed or locked expenses cannot be deleted. Supports `Idempotency-Key`.
+         *     Not available to AI app connections.
+         */
+        delete: operations["deleteExpense"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an expense
+         * @description Approved, billed or locked expenses cannot be changed. Supports `Idempotency-Key` for
+         *     safe retries. Not available to AI app connections.
+         */
+        patch: operations["updateExpense"];
+        trace?: never;
+    };
+    "/api/v2/expenses/{id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID in the authenticated workspace. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Download an expense receipt
+         * @description Returns the original file bytes after checking current expense visibility and workspace
+         *     Expenses enablement. The response uses the stored MIME type, an inline filename and
+         *     Cache-Control private, no-store. A missing receipt or stored file returns 404.
+         *     Use a full-access API key with current record access; personal sync keys and AI app
+         *     connections cannot call this route. A receipt URL is an authenticated path, not a public link.
+         */
+        get: operations["getExpenseReceipt"];
+        put?: never;
+        /**
+         * Upload or replace an expense receipt
+         * @description Create the expense first, retain its ID, then send multipart/form-data with field file.
+         *     Replaces the existing receipt only after the new file has been stored. The maximum
+         *     upload is 9 MiB (9437184 bytes); empty files are refused. Supported MIME types are PDF,
+         *     JPEG, PNG, GIF, WebP, HEIC, HEIF and TIFF. Expenses must be enabled and the caller must
+         *     currently have access. Approved, billed, locked expenses and locked timesheet weeks
+         *     cannot be changed. Personal sync keys and AI app connections cannot call this route.
+         *     Upload is separate from parsing/OCR and does not change attach_receipt_to_invoice.
+         *     There is no idempotency-key contract on this route; do not recreate the expense when
+         *     retrying an upload. The returned receipt_url remains authenticated.
+         */
+        post: operations["uploadExpenseReceipt"];
+        /**
+         * Remove an expense receipt
+         * @description Clears receipt metadata and removes its stored file. The same current record access,
+         *     feature enablement, approved/billed/locked-expense and timesheet-week protections as
+         *     upload apply. Missing receipt returns 404. Personal sync keys and AI app connections
+         *     cannot call this route. There is no idempotency-key contract for receipt removal.
+         */
+        delete: operations["deleteExpenseReceipt"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/expense_categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List expense categories
+         * @description Categories the workspace records expenses against. Requires the expenses feature.
+         */
+        get: operations["listExpenseCategories"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -122,14 +493,301 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List projects */
+        /**
+         * List projects
+         * @description Owners/admins see all workspace projects. Other internal users see only actively assigned projects. Rates, fees, budgets, and internal costs are omitted unless the bound user has the matching UX permission.
+         */
         get: operations["listProjects"];
+        put?: never;
+        /**
+         * Create a project
+         * @description Requires owner/admin access or manager access with canEditProjects permission.
+         *
+         *     Pass `template_id` (from `GET /api/v2/project_templates`) to create the project from a
+         *     saved project template. The template supplies billing, budget and visibility settings,
+         *     tasks and people, so the request may only add `name`, `client_id`, `code`, `notes`,
+         *     `owner_id`, `starts_on` and `ends_on`; any billing, budget or task field alongside
+         *     `template_id` is rejected with 400. `client_id` is optional when the template is tied to a
+         *     client and overrides that client when supplied. Shared tasks or people that are no longer
+         *     active in the workspace are skipped; when no task survives, default tasks are assigned.
+         *
+         *     Workspace task default rates are stored in the workspace currency. When the client bills
+         *     in another currency, each assigned task's default rate is converted into the client currency
+         *     at the current exchange rate before it is stored, exactly as the web project form does; when
+         *     no rate is known the workspace figure is kept. Servers that do this advertise
+         *     `project-task-rate-currency-conversion` in `X-Keito-Features`.
+         */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/project_templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List project templates
+         * @description Saved project templates for the workspace, for picking a `template_id` to pass to
+         *     `POST /api/v2/projects`. Requires owner/admin access or manager access with
+         *     canEditProjects permission. Rates, fees and budgets are never returned; the template
+         *     applies them when a project is created.
+         */
+        get: operations["listProjectTemplates"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/archive_review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Review active projects that may be ready to archive
+         * @description Lists active projects with no tracked time in the requested inactivity window. Owners and admins see the workspace; managers with Edit projects see only projects they actively manage. The result is paginated and includes warning reasons for uninvoiced work, running timers, retainers, recurring invoices and future schedules. Review does not change projects.
+         */
+        get: operations["reviewProjectsForArchive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/archive_review/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recheck selected projects before archive
+         * @description Rechecks up to 100 exact project IDs against the review criteria and timestamp. Returns per-project status, warning reasons and a signed token only if every project is eligible. The token is bound to the user, workspace, IDs and warning reasons and expires within 30 minutes.
+         */
+        post: operations["preflightProjectArchive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/archive_review/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive explicitly confirmed projects
+         * @description Archives only IDs matching the signed preflight token, after explicit confirmation and warning acknowledgement. Rechecks tenant, manager scope, activity and warnings before changing each project. Reports per-ID outcomes; preserves project history and may stop running timers.
+         */
+        post: operations["archiveReviewedProjects"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/{projectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a visible project
+         * @description Uses the same assignment visibility and financial-field redaction as the Keito project page. Invisible and cross-workspace IDs return 404.
+         */
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        /**
+         * Permanently delete an archived project
+         * @description Owner/admin only. The project must already be archived and If-Match must contain its current ETag. Historical invoice lines are preserved.
+         */
+        delete: operations["deleteProject"];
+        options?: never;
+        head?: never;
+        /**
+         * Update, archive, or restore a project
+         * @description Owners/admins may update any project. Managers require canEditProjects and current project-manager status. Commercial fields also require billable-rate permission. Pass is_active to archive or restore.
+         */
+        patch: operations["updateProject"];
+        trace?: never;
+    };
+    "/api/v2/projects/{projectId}/user_assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List the people assigned to a project
+         * @description Harvest-compatible project team list. Readable by owners/admins and by people
+         *     assigned to the project; invisible and cross-workspace projects return 404.
+         *     `use_default_rates`, `hourly_rate` and `budget` are returned only to callers
+         *     with billable-rate visibility (owners/admins, or managers with the
+         *     billable-rates permission) and are omitted otherwise. Email addresses and
+         *     cached totals are never returned. Full-access credentials only.
+         */
+        get: operations["listProjectUserAssignments"];
+        put?: never;
+        /**
+         * Add a person to a project
+         * @description Uses the same rules as adding a person in the project editor. Requires an
+         *     owner/admin, or a manager with project-edit permission who currently manages
+         *     the project. Managers may add ordinary people only: project-manager status,
+         *     financial visibility, turning off time tracking and person budgets are
+         *     administrator-only, and client members can only be added by administrators.
+         *     `budget` also requires billable-rate visibility. Adding a previously removed
+         *     person restores their assignment; an active assignment returns 409. Project
+         *     rates are managed in the project editor and are not writable here.
+         */
+        post: operations["createProjectUserAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/{projectId}/user_assignments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one project user assignment
+         * @description Same visibility and field redaction as the list. IDs on another project or workspace return 404.
+         */
+        get: operations["getProjectUserAssignment"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a person from a project
+         * @description Deactivates the assignment exactly like Remove in the project editor. The
+         *     assignment is never hard-deleted, so logged time and history are kept and the
+         *     person can be restored with PATCH `is_active: true`. Returns the deactivated
+         *     assignment.
+         */
+        delete: operations["deleteProjectUserAssignment"];
+        options?: never;
+        head?: never;
+        /**
+         * Update or restore a project user assignment
+         * @description Same rules as the project member permissions table. Managers who manage the
+         *     project may only restore or remove ordinary people (`is_active`), or change
+         *     `is_project_manager` for teammates when the workspace allows project managers
+         *     to assign managers; they cannot change their own assignment or another
+         *     project manager's. Everything else is administrator-only, and `budget` also
+         *     requires billable-rate visibility. Pass the ETag in If-Match to avoid
+         *     overwriting a concurrent change.
+         */
+        patch: operations["updateProjectUserAssignment"];
+        trace?: never;
+    };
+    "/api/v2/projects/{projectId}/task_assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List a project's task assignments
+         * @description Per-project task settings, including task budgets. Readable by owners/admins
+         *     and people assigned to the project. `billable` and `hourly_rate` follow the
+         *     project-financials visibility rule; `budget` follows the project-budget rule
+         *     (which includes "show budget to everyone" for assigned people). Omitted
+         *     otherwise. Full-access credentials only.
+         */
+        get: operations["listProjectTaskAssignments"];
+        put?: never;
+        /**
+         * Assign a workspace task to a project
+         * @description Adds an existing, active workspace task (see `GET /api/v2/tasks`) to the
+         *     project, or restores an archived assignment. Requires an owner/admin, or a
+         *     manager with project-edit permission who currently manages the project.
+         *     `billable`, `hourly_rate` and `budget` also require billable-rate visibility.
+         *     An already-active assignment returns 409. Use `POST /api/v2/tasks` to create
+         *     a task that exists only on this project.
+         */
+        post: operations["createProjectTaskAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/{projectId}/task_assignments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one project task assignment
+         * @description Same visibility and field redaction as the list. IDs on another project or workspace return 404.
+         */
+        get: operations["getProjectTaskAssignment"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a task from a project
+         * @description Same as Remove in the project editor. If any time was logged against the
+         *     task on this project the assignment is archived (`outcome: archived`) and can
+         *     be restored with PATCH `is_active: true`; only an assignment nothing was
+         *     logged against is deleted (`outcome: deleted`), along with its task when the
+         *     task existed only on this project.
+         */
+        delete: operations["deleteProjectTaskAssignment"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a task's budget, rate, billability, or active state on a project
+         * @description Requires an owner/admin, or a manager with project-edit permission who
+         *     currently manages the project. `billable`, `hourly_rate` and `budget` also
+         *     require billable-rate visibility; send `null` to clear a rate or budget. A
+         *     new `hourly_rate` applies to time tracked from now on; existing time entries
+         *     are not repriced. `is_active: false` archives the task on this project
+         *     without deleting anything; `true` restores it.
+         */
+        patch: operations["updateProjectTaskAssignment"];
         trace?: never;
     };
     "/api/v2/clients": {
@@ -139,12 +797,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List clients */
+        /**
+         * List clients
+         * @description Returns full client records (billing address, tax and discount terms, payment terms). Requires an owner or administrator, or a manager with the client management grant or an invoicing grant; other users receive 403.
+         *     Pass `fields=minimal` for the roster a project picker needs — `id`, `name`, `currency` and `is_active` only. That shape is also available to a manager who may create projects (`canEditProjects`) but holds no client or invoicing grant; anyone else receives 403 `Client lookup requires project, client management, or invoicing permissions`. Any other `fields` value is refused with 400. Servers that support it advertise `clients-minimal-fields` in `X-Keito-Features`.
+         */
         get: operations["listClients"];
         put?: never;
         /**
          * Create a client
-         * @description Requires manager or admin permissions.
+         * @description Requires owner/admin access or manager access with canEditClientsAndTasks.
          */
         post: operations["createClient"];
         delete?: never;
@@ -162,16 +824,23 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get a client */
+        /**
+         * Get a client
+         * @description Returns the full client record including contacts. Requires an owner or administrator, or a manager with the client management grant or an invoicing grant; other users receive 403.
+         */
         get: operations["getClient"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Permanently delete an archived client
+         * @description Owner/admin only. The client must be archived, have no projects or financial documents, and have a current If-Match value.
+         */
+        delete: operations["deleteClient"];
         options?: never;
         head?: never;
         /**
          * Update a client
-         * @description Requires manager or admin permissions.
+         * @description Requires owner/admin access or manager access with canEditClientsAndTasks. Only owners/admins may change is_active.
          */
         patch: operations["updateClient"];
         trace?: never;
@@ -183,12 +852,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List contacts */
+        /**
+         * List contacts
+         * @description Contacts are client personal data. Requires an owner or administrator, or a manager with the client management grant or an invoicing grant; other users receive 403.
+         */
         get: operations["listContacts"];
         put?: never;
         /**
          * Create a contact
-         * @description Requires manager or admin permissions.
+         * @description Requires manager or admin permissions. The body is accepted with or without a JSON `Content-Type`. An `Idempotency-Key` makes retries safe for 24 hours; invalid bodies and unknown clients never consume it.
          */
         post: operations["createContact"];
         delete?: never;
@@ -204,8 +876,109 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List tasks */
+        /**
+         * List tasks
+         * @description Pass `project_id` to return tasks assigned to that project. Authorized
+         *     callers also receive the authenticated user's current
+         *     `effective_billable_rate` and the project billing currency for each task.
+         *     Callers who can view the project budget also receive the active task
+         *     assignment's `budget`, including `null` when that assignment has no budget.
+         *     Requests without `project_id` omit `budget` because workspace-global tasks
+         *     do not have a single project budget. Unauthorized callers receive the same
+         *     task list with protected rate and budget properties omitted.
+         */
         get: operations["listTasks"];
+        put?: never;
+        /**
+         * Create a project-scoped task
+         * @description Creates an active task usable only on `project_id` and assigns it to that
+         *     project. Requires a full-access credential and an internal workspace
+         *     administrator or a manager with project-edit permission who manages the
+         *     selected project. A manager also needs billable-rate visibility to set
+         *     `billable`, `hourly_rate`, or `budget`. Omitted `billable` inherits the
+         *     project's billable setting. Reusing the name of an active task on the
+         *     project returns 409; an archived assignment with that name is restored.
+         *     Supports Idempotency-Key for safe retries.
+         */
+        post: operations["createProjectTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List custom reporting roles
+         * @description Returns active custom reporting-role assignments for the authenticated
+         *     workspace, newest role first. Requires owner/administrator access and a
+         *     full-access key or the `users:read` cost-rate automation scope. Personal
+         *     read-only sync keys are not permitted.
+         */
+        get: operations["listRoles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workspace users for administrator automation
+         * @description Full-access and cost-rate automation keys receive a Harvest-compatible,
+         *     workspace-scoped directory for team and payroll integrations and require
+         *     owner/administrator access. `roles` contains descriptive custom reporting
+         *     roles; `access_roles` contains permission roles. Imported placeholders use
+         *     their recoverable original address, while contact-erased members remain
+         *     redacted. Cost and billable rates are never included.
+         *
+         *     Personal read-only sync keys receive the separate reduced directory shape.
+         *     It is limited to active internal human identities, omits email, capacity,
+         *     custom roles and relationships, and keeps the existing permission values in
+         *     its `roles` property for compatibility.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/users/{id}/teammates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace manager user CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List a manager's assigned teammates
+         * @description Returns minimal identities for the teammates directly assigned to a Keito
+         *     manager in the authenticated workspace. Requires owner/administrator access
+         *     and a full-access key or the `users:read` cost-rate automation scope. A
+         *     same-workspace user without the manager permission role returns 422.
+         *     Personal read-only sync keys are not permitted.
+         */
+        get: operations["listUserTeammates"];
         put?: never;
         post?: never;
         delete?: never;
@@ -221,11 +994,225 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get current user */
+        /**
+         * Get current user
+         * @description Returns the bound user's profile, the workspace policy a client needs (`company`) and what the member may do (`capabilities`). Servers that advertise `users-me-workspace-calendar` in `X-Keito-Features` include the workspace's `week_start_day`, `fiscal_year_end_month` and a human-readable `time_rounding_description`, and report `capabilities.can_view_billable_rates`. Personal read-only sync keys receive the reduced profile without `company`.
+         */
         get: operations["getCurrentUser"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/users/{id}/cost_rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace user CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List effective-dated cost rates
+         * @description Requires owner/administrator access and the `cost_rates:read` scope for a scoped API key.
+         */
+        get: operations["listUserCostRates"];
+        put?: never;
+        /**
+         * Create an effective-dated cost rate
+         * @description Requires owner/administrator access, the `cost_rates:write` scope for a
+         *     scoped API key, and an Idempotency-Key. `start_date` is required and may
+         *     be in the future. Keito closes only the adjacent preceding rate and derives
+         *     the new rate's end date from the next scheduled rate. Existing time-entry
+         *     cost snapshots are not rewritten.
+         */
+        post: operations["createUserCostRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/planning/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read your own schedule
+         * @description Business only. Owners, administrators and authorized planning managers retain access; other active internal people need canReadOwnPlanningApi, off by default and independent of team Plan visibility. Existing personal sync keys are accepted without rotation. Only the authenticated person is returned. Unknown, repeated and identity-selector parameters are rejected. Default: the current workspace week. Supply both from and to for a custom range of at most 84 inclusive civil days. Each page is built in a repeatable-read snapshot. Preserve range and per_page, and send snapshot_version on all later pages. A changed snapshot returns 409 with reason=snapshot_changed; restart at page 1. Availability always covers the complete range. Assignments sort by start_date then id. No actual hours, notes, money, teammates, leave types or external leave identifiers. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        get: operations["getOwnPlanning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List planning assignments
+         * @description Requires Business entitlement and existing authorized planning read access. Personal sync keys use GET /api/v2/planning/me instead. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        get: operations["listPlanningAssignments"];
+        put?: never;
+        /**
+         * Create a planning assignment
+         * @description Business planning managers and administrators only, within current person/project boundaries. Without the contract header, the existing response and behavior are unchanged. Contract 1 requires Idempotency-Key and PATCH/DELETE also require the exact strong ETag from item GET in If-Match. Authorization is rechecked before receipt replay. Mutation, audit, webhook enqueue and completed retry receipt commit atomically. Same-key concurrent duplicates have one effect. Changed key reuse returns 409. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        post: operations["createPlanningAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assignments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a planning assignment and strong ETag
+         * @description Business administrators and authorized planning managers within their current read scope. Returns assignment-owned fields only, including a soft-deletion tombstone. Joined labels and derived tracked/planned totals are excluded so the revision ETag is strong. Personal sync credentials cannot use this endpoint. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        get: operations["getPlanningAssignment"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a planning assignment
+         * @description Business planning managers and administrators only, within current person/project boundaries. Without the contract header, the existing response and behavior are unchanged. Contract 1 requires Idempotency-Key and PATCH/DELETE also require the exact strong ETag from item GET in If-Match. Authorization is rechecked before receipt replay. Mutation, audit, webhook enqueue and completed retry receipt commit atomically. Same-key concurrent duplicates have one effect. Changed key reuse returns 409. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        delete: operations["deletePlanningAssignment"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a planning assignment
+         * @description Business planning managers and administrators only, within current person/project boundaries. Without the contract header, the existing response and behavior are unchanged. Contract 1 requires Idempotency-Key and PATCH/DELETE also require the exact strong ETag from item GET in If-Match. Authorization is rechecked before receipt replay. Mutation, audit, webhook enqueue and completed retry receipt commit atomically. Same-key concurrent duplicates have one effect. Changed key reuse returns 409. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        patch: operations["updatePlanningAssignment"];
+        trace?: never;
+    };
+    "/api/v2/placeholders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List planning placeholders
+         * @description Requires Business entitlement and existing authorized planning read access. Personal sync keys use GET /api/v2/planning/me instead. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        get: operations["listPlanningPlaceholders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/time-off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List planning time off
+         * @description Requires Business entitlement and existing authorized planning read access. Personal sync keys use GET /api/v2/planning/me instead. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        get: operations["listPlanningTimeOff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List planning capacity
+         * @description Requires Business entitlement and existing authorized planning read access. Personal sync keys use GET /api/v2/planning/me instead. Business entitlement and current permission are checked on every request. 403 reason distinguishes entitlement from permission denial.
+         */
+        get: operations["listPlanningCapacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List webhook endpoints
+         * @description Administrator only. Planning event subscriptions require Business entitlement.
+         */
+        get: operations["listWebhooks"];
+        put?: never;
+        /**
+         * Create a webhook endpoint
+         * @description Administrator only. Planning event subscriptions require Business entitlement. Public HTTPS destinations only; unsafe IPv4/IPv6 and DNS answers and redirects are rejected. payload_version defaults to 1; choose 2 with a signing secret for minimal versioned events. Deliveries are at least once; deduplicate by stable delivery ID and use entity revisions to ignore reversed events. Periodically reconcile calendar changes.
+         */
+        post: operations["createWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/webhooks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a webhook endpoint
+         * @description Administrator only. Planning event subscriptions require Business entitlement.
+         */
+        delete: operations["deleteWebhook"];
         options?: never;
         head?: never;
         patch?: never;
@@ -238,12 +1225,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List invoices */
+        /**
+         * List invoices
+         * @description Requires the `can_view_invoices` capability reported by `GET /api/v2/users/me`: owners and admins always, managers only with the `canViewInvoices` grant. Any other API key or first-party token receives a 403 with `Insufficient permissions to view invoices`. An AI app connection (MCP connector token) whose member lacks the capability receives a 403 with `error: mcp_capability_required` and `capability: can_view_invoices` instead. Servers that enforce this gate advertise `invoice-view-permission-gate` in `X-Keito-Features`.
+         */
         get: operations["listInvoices"];
         put?: never;
         /**
          * Create an invoice
-         * @description Requires manager or admin permissions.
+         * @description Requires an owner/admin key or a manager with the `canEditDraftInvoices` permission. When `tax` or `tax2` is omitted, the client VAT default is used, then the workspace invoice default. The body is accepted with or without a JSON `Content-Type`. Send an `Idempotency-Key` to make retries safe: a refused request (unknown client, invalid body, failed import whose draft was removed) releases the key, a created draft is replayed for 24 hours. AI app connections need the `can_create_invoices` capability.
          */
         post: operations["createInvoice"];
         delete?: never;
@@ -261,7 +1251,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get an invoice */
+        /**
+         * Get an invoice
+         * @description Requires the `can_view_invoices` capability, as for `GET /api/v2/invoices`; otherwise a 403. An invoice outside the caller's company is a 404.
+         */
         get: operations["getInvoice"];
         put?: never;
         post?: never;
@@ -279,6 +1272,230 @@ export interface paths {
         patch: operations["updateInvoice"];
         trace?: never;
     };
+    "/api/v2/invoices/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Download an invoice PDF
+         * @description Returns the current rendered invoice as a private PDF download. The invoice must belong to the API key's workspace.
+         */
+        get: operations["downloadInvoicePdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/invoices/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List invoice attachments
+         * @description Files attached to the invoice, including generated time reports (`kind: time_report`). Uploaded files ride along as real email attachments when the invoice is sent with `include_attachments`.
+         */
+        get: operations["listInvoiceAttachments"];
+        put?: never;
+        /**
+         * Upload an invoice attachment
+         * @description Adds a supporting file to a draft or open invoice. Paid, closed and voided invoices are read-only. Limits: 9 MB per file, 10 files and 50 MB in total per invoice. Accepted types: PDF, JPEG, PNG, GIF, WebP, Word (.doc/.docx), Excel (.xls/.xlsx), CSV and plain text. Browsers that send an empty or generic MIME type are resolved from the file extension. Requires an owner/admin key or a manager with the matching invoice permission (`canEditDraftInvoices` for drafts, `canManageInvoices` for open invoices).
+         */
+        post: operations["uploadInvoiceAttachment"];
+        /**
+         * Delete an invoice attachment
+         * @description Removes a file from a draft or open invoice.
+         */
+        delete: operations["deleteInvoiceAttachment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/invoices/{id}/attachments/{attachmentId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Download an invoice attachment
+         * @description Streams the stored file with `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store`.
+         */
+        get: operations["downloadInvoiceAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/estimates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List estimates
+         * @description Any workspace member's API key may list estimates. An AI app connection is admitted only when its member is a manager with `canViewInvoices` (estimates have no view permission of their own); otherwise a 403 with `error: mcp_capability_required` and `capability: can_view_invoices`.
+         */
+        get: operations["listEstimates"];
+        put?: never;
+        /**
+         * Create an estimate
+         * @description Requires `canManageEstimates` manager permission or admin. The body is accepted with or without a JSON `Content-Type`; numeric fields also accept numeric strings. An `Idempotency-Key` makes retries safe for 24 hours; invalid bodies, unknown clients and ineligible owners never consume it. AI app connections need the `can_manage_estimates` capability.
+         */
+        post: operations["createEstimate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/estimates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Get an estimate */
+        get: operations["getEstimate"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an estimate
+         * @description Requires `canManageEstimates`; only draft estimates can be deleted.
+         */
+        delete: operations["deleteEstimate"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an estimate
+         * @description Requires `canManageEstimates` manager permission or admin.
+         */
+        patch: operations["updateEstimate"];
+        trace?: never;
+    };
+    "/api/v2/estimates/{id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark an estimate as sent
+         * @description Moves the estimate to `sent` and records an activity row with no recipients. No email is delivered by this endpoint. Requires `canManageEstimates`; refused for estimates with no line items and for accepted or declined estimates. An `Idempotency-Key` makes retries safe; a refused request never consumes it. AI app connections need the `can_manage_estimates` capability.
+         */
+        post: operations["sendEstimate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/estimates/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark an estimate as accepted */
+        post: operations["acceptEstimate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/estimates/{id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark an estimate as declined */
+        post: operations["declineEstimate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/estimates/{id}/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert an accepted estimate to a draft invoice */
+        post: operations["convertEstimate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/estimates/{id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Duplicate an estimate as a draft */
+        post: operations["duplicateEstimate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/invoices/{id}/messages": {
         parameters: {
             query?: never;
@@ -293,9 +1510,208 @@ export interface paths {
         put?: never;
         /**
          * Send an invoice
-         * @description Sends the invoice via email and transitions state to OPEN.
+         * @description Sends the invoice via email and transitions state to OPEN. Use `event_type: "mark_sent"` to transition a draft to OPEN without sending email or requiring recipients. Use `event_type: "resend"` to email another copy of a previously sent open or paid invoice: the invoice keeps its state, number, dates, and first-sent timestamp, a `resend` message is recorded, accounting integrations are not re-posted, and a second resend within one minute is refused.
+         *     Optional `confirm` binds the request to the invoice as the caller last saw it: `amount` (compared at two decimals) and `currency` (case insensitive) must equal the invoice's current values, and `recipient_count`, when given, must equal the number of distinct To recipients (0 for `mark_sent`). Any mismatch returns 409 with `error: confirmation_mismatch`, `expected` and `received`, and nothing changes. Requests without `confirm` behave as before.
+         *     An `Idempotency-Key` makes retries safe for 24 hours. Every validation above runs before the key is claimed, so a refused request never consumes it; a completed send, including a post-issue delivery failure, is replayed rather than re-issued. Manager access is required. AI app connections additionally need `canManageInvoices` for every `event_type` (`can_send_invoices`).
          */
         post: operations["sendInvoice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/invoices/{id}/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List an invoice's payments
+         * @description Payments recorded against the invoice, newest first (by payment date, then by when they were recorded). Requires the `can_view_invoices` capability, as for `GET /api/v2/invoices`. Each row carries `deletable`: true only for a manually recorded payment when the caller may manage invoices, which is exactly what `DELETE /api/v2/invoices/{id}/payments/{paymentId}` will accept. Servers that offer this list advertise `invoice-payments-list` in `X-Keito-Features`.
+         */
+        get: operations["listInvoicePayments"];
+        put?: never;
+        /**
+         * Record an invoice payment
+         * @description Records a partial or full payment. A payment equal to the remaining due amount marks the invoice paid; partial payments leave it open. Draft invoices and overpayments are rejected. Requires `canManageInvoices`.
+         */
+        post: operations["createInvoicePayment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/invoices/{id}/payments/{paymentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                paymentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a manually recorded invoice payment
+         * @description Removes a payment that was recorded by hand and recalculates the invoice's amount due and state from the payments that remain, so a paid invoice becomes open again. Requires an owner/admin key or a manager with `canManageInvoices`. Payments that came from a gateway, an accounting integration, a retainer or an import are refused with a 409 and must be reversed where they were made. When the payment has a Xero or QuickBooks copy, that copy is reversed first exactly as the web does: `deleted` is true only once the reversal is confirmed (`accounting_sync.status` `SYNCED`) or there was nothing to reverse (`NOT_APPLICABLE`); otherwise the payment is kept in Keito, `outcome` is `kept_in_keito` and `message` says why. Send an `Idempotency-Key` to make retries safe: a completed deletion is replayed for 24 hours, while a refusal or a payment kept in Keito releases the key so the same request can be retried. Servers that offer this route advertise `invoice-payment-delete` in `X-Keito-Features`.
+         */
+        delete: operations["deleteInvoicePayment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/{projectId}/budget_summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read-only monetary budget progress
+         * @description Explicit opt-in aggregate view for active internal standard members.
+         *     Owners and administrators retain their existing financial authority
+         *     on this dedicated surface, including unassigned projects. Other users
+         *     require `canViewAssignedProjectMoneyBudgets` on an active project
+         *     assignment, or `canViewManagedProjectMoneyBudgets` and a manager role
+         *     with an active project-manager assignment. Grants default off. The
+         *     server rollout flag can disable this surface without altering legacy
+         *     financial access. Client and restricted accountant memberships, MCP
+         *     connections, read-only sync and cost-rate scoped keys are denied.
+         *
+         *     Supports monetary project and task-fee budgets only. Monetary project
+         *     budgets use their configured billable spending basis, including
+         *     expenses when configured. Internal-cost budgets are excluded.
+         *     Monthly budgets report the current month, with no all-time task rows.
+         *     Currency follows the project client's currency, falling back to the
+         *     workspace currency. Rates, costs, invoices, names and time entries
+         *     are excluded. Aggregate spending may still allow rate inference.
+         *
+         *     Existing project, task, report and billing API responses are unchanged.
+         *     This is a safe read and grants no editing or invoicing capabilities.
+         */
+        get: operations["getProjectMoneyBudgetSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/{projectId}/billing_summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Project billing summary
+         * @description How much has been invoiced for one project. `invoiced` counts issued
+         *     invoices only (open, paid, closed) per invoice currency and never sums
+         *     across currencies; drafts are reported separately in `draft_amount`.
+         *     `uninvoiced` follows the uninvoiced report (workspace rounding,
+         *     historical effective billing rates, the workspace approval policy) and
+         *     `budget` is the project budget report row when the project has one.
+         *
+         *     Access follows the uninvoiced report: an owner/admin, or a manager with
+         *     both `canViewBillableRates` and `canViewInvoices`, limited to projects
+         *     they actively manage; other projects and cross-workspace ids read as
+         *     404. Personal read-only sync keys are not admitted. AI app connections
+         *     (MCP connector tokens) also need the `can_view_financial_reports`
+         *     capability and never see calendar-derived time in the uninvoiced
+         *     figures (`calendar_time_excluded: true`).
+         *
+         *     `from` and `to` (YYYYMMDD or YYYY-MM-DD, at most 365 days) narrow both
+         *     the invoices by issue date and the uninvoiced work by spent date; give
+         *     both or neither.
+         */
+        get: operations["getProjectBillingSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/project_budget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Project budget report
+         * @description Harvest-compatible project budget report. Requires a full-access API
+         *     key (or WorkOS JWT) bound to an owner/admin, or to a manager with
+         *     `canViewBillableRates`. Managers receive only projects they actively
+         *     manage; personal read-only sync and cost-rate keys are not admitted.
+         *
+         *     Monetary budget consumption uses Keito's rounded time and historical
+         *     effective billing rates. Invoice discounts, payments, and retainer
+         *     credits do not change `budget_spent`.
+         */
+        get: operations["getProjectBudgetReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/uninvoiced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Uninvoiced report
+         * @description Harvest-compatible project-level uninvoiced report. Requires a
+         *     full-access API key (or WorkOS JWT) bound to an owner/admin, or to a
+         *     manager with both `canViewBillableRates` and `canViewInvoices`.
+         *     Managers receive only projects they actively manage. AI app connections
+         *     (MCP connector tokens) also need the `can_view_financial_reports`
+         *     capability and never see calendar-derived time in the totals.
+         *
+         *     Time uses the workspace rounding rule and historical effective billing
+         *     rate. Approval eligibility follows the workspace invoice setting.
+         *     Running and rejected time are excluded. Fixed-fee balance is the project
+         *     fee less non-voided service invoice lines; payments, invoice discounts,
+         *     tax, and retainer-funding lines do not reduce it. For date-filtered fixed
+         *     fees, the balance appears when the range ends on or after the project
+         *     start date, falling back to project creation date.
+         *
+         *     Multi-month ranges are supported within the documented 365-day limit;
+         *     there is no separate one- or two-month limit. Results are paginated by
+         *     project, with `per_page` defaulting to and capped at 2000. Follow
+         *     `links.next` until it is null, retaining the same date range and
+         *     `include_fixed_fee` choice. Date filters select the reporting period;
+         *     they do not turn this report into an immutable historical snapshot.
+         *     Retainer balances are not returned or subtracted from these amounts.
+         */
+        get: operations["getUninvoicedReport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -323,17 +1739,352 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/reports/time/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Time report by client
+         * @description The web Time Report's "Clients" breakdown for any internal member
+         *     (feature flag `time-reports-v1`). Totals use the workspace time-rounding
+         *     rule and the historical effective billing rate, so a client and the
+         *     browser agree. Time on fixed-fee projects always counts towards hours
+         *     and contributes to billable amounts only when `include_fixed_fee=true`.
+         *
+         *     Who sees whose time follows the web report: a member sees their own
+         *     entries, a manager additionally their managed projects and assigned
+         *     teammates, and an owner or administrator the whole workspace. `user_id`
+         *     is limited to `me` or the caller's own id unless the caller is an owner
+         *     or administrator (403 `user_id must be "me" or your own user id`).
+         *     External client members are refused (403). There is no plan gate.
+         *
+         *     Amounts and rates (`currency`, `billable_amount`, `rate`,
+         *     `billable_amounts`, `rates`, `summary.billable_amounts`) appear only when
+         *     the caller may view billable rates; otherwise they are omitted, not
+         *     zeroed, and `summary.amounts_visible` is false. `summary` is computed
+         *     over every row of the report, before paging. Hours are decimal hours to
+         *     two places. Rows are ordered by name.
+         *
+         *     Not available to AI app (MCP connector) tokens or personal read-only
+         *     sync keys.
+         */
+        get: operations["getTimeReportByClients"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/time/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Time report by project
+         * @description The web Time Report's "Projects" breakdown for any internal member
+         *     (feature flag `time-reports-v1`). Totals use the workspace time-rounding
+         *     rule and the historical effective billing rate, so a client and the
+         *     browser agree. Time on fixed-fee projects always counts towards hours
+         *     and contributes to billable amounts only when `include_fixed_fee=true`.
+         *
+         *     Who sees whose time follows the web report: a member sees their own
+         *     entries, a manager additionally their managed projects and assigned
+         *     teammates, and an owner or administrator the whole workspace. `user_id`
+         *     is limited to `me` or the caller's own id unless the caller is an owner
+         *     or administrator (403 `user_id must be "me" or your own user id`).
+         *     External client members are refused (403). There is no plan gate.
+         *
+         *     Amounts and rates (`currency`, `billable_amount`, `rate`,
+         *     `billable_amounts`, `rates`, `summary.billable_amounts`) appear only when
+         *     the caller may view billable rates; otherwise they are omitted, not
+         *     zeroed, and `summary.amounts_visible` is false. `summary` is computed
+         *     over every row of the report, before paging. Hours are decimal hours to
+         *     two places. Rows are ordered by name. Project rows carry
+         *     `client_id`, `client_name`, `code` and `is_fixed_fee`.
+         *
+         *     Not available to AI app (MCP connector) tokens or personal read-only
+         *     sync keys.
+         */
+        get: operations["getTimeReportByProjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/time/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Time report by task
+         * @description The web Time Report's "Tasks" breakdown for any internal member
+         *     (feature flag `time-reports-v1`). Totals use the workspace time-rounding
+         *     rule and the historical effective billing rate, so a client and the
+         *     browser agree. Time on fixed-fee projects always counts towards hours
+         *     and contributes to billable amounts only when `include_fixed_fee=true`.
+         *
+         *     Who sees whose time follows the web report: a member sees their own
+         *     entries, a manager additionally their managed projects and assigned
+         *     teammates, and an owner or administrator the whole workspace. `user_id`
+         *     is limited to `me` or the caller's own id unless the caller is an owner
+         *     or administrator (403 `user_id must be "me" or your own user id`).
+         *     External client members are refused (403). There is no plan gate.
+         *
+         *     Amounts and rates (`currency`, `billable_amount`, `rate`,
+         *     `billable_amounts`, `rates`, `summary.billable_amounts`) appear only when
+         *     the caller may view billable rates; otherwise they are omitted, not
+         *     zeroed, and `summary.amounts_visible` is false. `summary` is computed
+         *     over every row of the report, before paging. Hours are decimal hours to
+         *     two places. Rows are ordered by name. Task rows carry
+         *     `percent_of_total` (share of the report's hours); a task billed on
+         *     projects for clients in different currencies has `currency`,
+         *     `billable_amount` and `rate` null with the split in `billable_amounts`.
+         *
+         *     Not available to AI app (MCP connector) tokens or personal read-only
+         *     sync keys.
+         */
+        get: operations["getTimeReportByTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/retainers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List retainers with corrected ledger balances
+         * @description Read-only financial access for owners, administrators, and managers with
+         *     invoice-view permission, using normal full-access API credentials or a
+         *     WorkOS JWT. MCP connector, personal read-only sync, and scoped automation
+         *     credentials do not gain access to retainers.
+         *
+         *     Balances use the current corrected Keito ledger, excluding currently
+         *     voided activities. Optional `as_of` includes every activity dated on or
+         *     before that calendar date, including corrections entered later. It does
+         *     not reconstruct what was recorded at the time. Without `as_of`, all
+         *     current non-voided activities are included, even future-dated activities.
+         *     Status and other retainer metadata are current, regardless of `as_of`.
+         *     Amounts are exact decimal strings in each retainer's currency. Do not sum
+         *     different currencies. Imported history may be incomplete.
+         *
+         *     Retainers are ordered by creation time, then ID. Each response is a
+         *     consistent read; separate pages are not an immutable snapshot. Follow all
+         *     pages and avoid concurrent ledger changes while collecting month-end
+         *     figures. Unknown or repeated query parameters are rejected.
+         */
+        get: operations["listRetainers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/retainers/{retainerId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a retainer with its corrected ledger balance
+         * @description Uses the same financial permission and current-corrected-ledger contract
+         *     as the retainer list. Returns 404 for an unknown retainer or a retainer
+         *     outside the selected account. Only `as_of` is accepted as a query
+         *     parameter; repeated or unknown parameters are rejected. This endpoint
+         *     does not create, change, or archive retainers.
+         */
+        get: operations["getRetainer"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the workspace backup manifest
+         * @description Returns the versioned list of portable workspace resources and record counts.
+         *     Only workspace owners and administrators can use backup endpoints. Download
+         *     every page of every resource to produce a complete portable backup.
+         */
+        get: operations["getWorkspaceBackupManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backup/{resource}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download one page of a backup resource
+         * @description Returns records in deterministic creation order. Decimal and bigint values
+         *     are strings to preserve precision. This endpoint has its own versioned backup
+         *     contract and does not change the response shape of the normal API v2 endpoints.
+         *
+         *     For `resource=retainers`, owners and administrators with full-access API
+         *     credentials can read the current retainer records and their nested
+         *     activities, including voided activities. Use `scope` and
+         *     `coverage_project_id` to interpret project versus client-wide coverage;
+         *     client-wide retainers have a null `coverage_project_id`. The legacy
+         *     project anchor is not the coverage definition. Current statuses are
+         *     `ACTIVE` and `ARCHIVED`, and activity types are `ADD_FUNDS`, `DRAW`, and
+         *     signed `ADJUSTMENT` values. Amounts are decimal strings.
+         *
+         *     Activity `balance_after` values are stored snapshots and are not
+         *     recalculated across the ledger after backdating, edits, or voids. For
+         *     corrected balances, sum current non-voided activity amounts by type and
+         *     activity date, or use `GET /api/v2/retainers?as_of=YYYY-MM-DD`.
+         *
+         *     Only the pagination query parameters below are supported. This backup
+         *     does not calculate retainer balances, filter by `client_id` or `status`,
+         *     or implement `as_of`. It is a current export, not an immutable historical
+         *     snapshot: activities can be corrected, voided, or removed later. Follow
+         *     every page before reconciling an export. Personal read-only sync keys
+         *     and MCP connector credentials cannot access this backup endpoint.
+         */
+        get: operations["getWorkspaceBackupResource"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/backup/files/invoice_expense_receipts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download an invoice's immutable expense receipt copy */
+        get: operations["downloadBackupInvoiceExpenseReceipt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ExpenseReimbursementClassification: {
+            expense_id: string;
+            /** @description True is reimbursable, false is not reimbursable, and null is Not classified. */
+            reimbursable: boolean | null;
+            expense_version: number;
+        };
+        ExpenseReimbursementClassificationUpdate: {
+            /** @description Explicit classification; use null for Not classified. */
+            reimbursable: boolean | null;
+            /** @description expense_version from the most recent classification GET. */
+            expected_expense_version: number;
+        };
         Error: {
             /** @example bad request */
             error?: string;
             /** @example project_id is required */
             error_description?: string;
-        } & {
-            [key: string]: unknown;
+            /** @example project_id is required */
+            message?: string;
+        };
+        WorkspaceMismatch: components["schemas"]["Error"] & {
+            /** @enum {string} */
+            error: "workspace_mismatch";
+            /** @description The workspace the AI app connection is bound to. */
+            bound_company_id: string;
+        };
+        McpCapabilityRequired: components["schemas"]["Error"] & {
+            /** @enum {string} */
+            error: "mcp_capability_required";
+            /**
+             * @description The `capabilities` key on `GET /api/v2/users/me` the member must hold.
+             * @enum {string}
+             */
+            capability: "can_track_time" | "can_track_expenses" | "can_edit_time_billability" | "can_create_field_clients" | "can_view_team_time" | "can_view_invoices" | "can_create_invoices" | "can_send_invoices" | "can_record_invoice_payments" | "can_manage_estimates" | "can_create_projects" | "can_view_financial_reports" | "can_view_billable_rates";
+        };
+        InvoiceConfirmationMismatch: components["schemas"]["Error"] & {
+            /** @enum {string} */
+            error: "confirmation_mismatch";
+            /** @description The invoice's current `amount` (two-decimal string) and `currency`, or `recipient_count`. */
+            expected: {
+                [key: string]: unknown;
+            };
+            received: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description What the authenticated member may do through API v2. `can_view_invoices` follows the granular view-invoices permission (managers who can edit or send invoices always hold it too). AI app connections are refused with `mcp_capability_required` on routes whose capability is false here. */
+        UserCapabilities: {
+            can_track_time: boolean;
+            can_track_expenses: boolean;
+            can_edit_time_billability: boolean;
+            /** @description Manager with `canEditClientsAndTasks`, or owner/admin. */
+            can_create_field_clients: boolean;
+            can_view_team_time: boolean;
+            /** @description Manager with `canViewInvoices`, or owner/admin. */
+            can_view_invoices: boolean;
+            /** @description Manager with `canEditDraftInvoices`, or owner/admin. */
+            can_create_invoices: boolean;
+            /** @description Manager with `canManageInvoices`, or owner/admin. */
+            can_send_invoices: boolean;
+            can_record_invoice_payments: boolean;
+            /** @description Manager with `canManageEstimates`, or owner/admin. */
+            can_manage_estimates: boolean;
+            can_create_projects: boolean;
+            /** @description Manager with both `canViewBillableRates` and `canViewInvoices`, or owner/admin. */
+            can_view_financial_reports: boolean;
+            /** @description Manager with `canViewBillableRates`, or owner/admin. The same grant that reveals `hourly_rate`, task rates and `default_hourly_rate` on reads. */
+            can_view_billable_rates: boolean;
+        };
+        RunningTimerConflict: components["schemas"]["Error"] & {
+            running_entry?: components["schemas"]["TimeEntry"];
+            running_entry_count?: number;
         };
         PaginationLinks: {
             first?: string;
@@ -348,6 +2099,33 @@ export interface components {
             page?: number;
             links?: components["schemas"]["PaginationLinks"];
         };
+        BackupManifest: {
+            /** @example 1 */
+            backup_schema_version: number;
+            /** Format: date-time */
+            generated_at: string;
+            workspace: {
+                id: string;
+                name: string;
+            };
+            resources: {
+                name: string;
+                description: string;
+                total_entries: number;
+                endpoint: string;
+            }[];
+            excluded: string[];
+            notes: string[];
+        };
+        BackupResourcePage: components["schemas"]["PaginationEnvelope"] & {
+            /** @example 1 */
+            backup_schema_version: number;
+            resource: string;
+            /** @description Resource-specific backup records with snake_case keys. */
+            records: {
+                [key: string]: unknown;
+            }[];
+        };
         IdName: {
             id?: string;
             name?: string | null;
@@ -356,17 +2134,77 @@ export interface components {
         Metadata: {
             [key: string]: unknown;
         } | null;
+        /**
+         * @description Links a time entry to an object in another system, such as a ticket, issue or task.
+         *     Keito shows it as a linked chip on the Day view, in the time entry dialog and in the
+         *     Detailed Time report; the chip opens `permalink` and is labelled with `display_name`
+         *     (falling back to `id`). `id` is required whenever `external_reference` is sent; every
+         *     other field is optional. Send `null` (or use `DELETE .../external_reference`) to remove it.
+         */
+        ExternalReference: {
+            /** @description Identifier of the external object. Required. */
+            id: string;
+            /** @description Optional group or scope identifier, such as a project or board. */
+            group_id?: string | null;
+            /** @description Optional account or tenant identifier in the external system. */
+            account_id?: string | null;
+            /**
+             * Format: uri
+             * @description Link to the external object. Must be an absolute `http` or `https` URL.
+             */
+            permalink?: string | null;
+            /** @example zendesk.com */
+            service?: string | null;
+            /** @example Zendesk */
+            service_name?: string | null;
+            /**
+             * @description Human-readable label for the chip.
+             * @example #4821 Invoice export fails
+             */
+            display_name?: string | null;
+            /**
+             * @description Human-readable name for `group_id`.
+             * @example Support queue
+             */
+            group_name?: string | null;
+            /** @description Optional parent object identifier, such as the epic of an issue. */
+            parent_id?: string | null;
+        } | null;
+        ExternalReferenceSummary: {
+            total_hours: number;
+            my_hours: number;
+            entry_count: number;
+            last_used: {
+                project_id?: string;
+                project_name?: string;
+                task_id?: string;
+                task_name?: string;
+            } | null;
+            my_running_entry_id: string | null;
+        };
+        /** @description Minimal project-specific task assignment returned to personal read-only sync credentials. Rates, budgets, and aggregate totals are excluded. */
+        SyncTaskAssignment: {
+            id: string;
+            billable: boolean;
+            is_active: boolean;
+        } | null;
         TimeEntry: {
             id?: string;
             user_id?: string;
             project_id?: string;
             task_id?: string;
+            task_assignment?: components["schemas"]["SyncTaskAssignment"];
             user?: components["schemas"]["IdName"];
             project?: components["schemas"]["IdName"];
             task?: components["schemas"]["IdName"];
             /** Format: date */
             spent_date?: string;
+            /** @description Legacy stored decimal-hours value. Existing integrations can continue using this field unchanged. */
             hours?: number;
+            /** @description Actual saved duration in seconds before workspace rounding. */
+            duration_seconds?: number;
+            /** @description Hours after applying the workspace time-rounding policy; used by totals, reports, budgets, and new invoice quantities. */
+            rounded_hours?: number;
             notes?: string | null;
             is_running?: boolean;
             /** Format: date-time */
@@ -375,20 +2213,117 @@ export interface components {
             started_time?: string | null;
             /** @description HH:mm */
             ended_time?: string | null;
+            /**
+             * @description Keito timesheet approval state. This is the authoritative approval field: time approved
+             *     in Keito reports `approved` (and `is_locked: true`) while `is_closed` stays `false`.
+             *     Omitted from personal read-only sync responses.
+             * @enum {string}
+             */
+            approval_status?: "unsubmitted" | "submitted" | "approved" | "rejected";
+            /** @description The entry cannot be edited, for example because it was approved or invoiced. */
             is_locked?: boolean;
+            /**
+             * @description Harvest compatibility flag. `true` only for entries imported from Harvest that Harvest
+             *     had approved. It is not set by Keito's own approval workflow; use `approval_status`.
+             */
             is_closed?: boolean;
             is_billed?: boolean;
+            /** @description Keito invoice CUID linked directly or through a grouped invoice line. Null when no local invoice line links the entry, including manually billed or historical imported entries without a link. Never a Harvest invoice ID. Omitted from personal read-only sync responses. Invoice access permissions are unchanged. */
+            readonly invoice_id?: string | null;
             billable?: boolean;
             budgeted?: boolean;
+            /** @description Stored historical billable rate. Omitted unless authorized for this project. */
             billable_rate?: number | null;
-            cost_rate?: number | null;
             /** @enum {string} */
-            source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop";
+            source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop" | "mobile" | "integration" | "extension";
             metadata?: components["schemas"]["Metadata"];
+            external_reference?: components["schemas"]["ExternalReference"];
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
             updated_at?: string;
+        };
+        ApprovalSubmitRequest: {
+            /**
+             * Format: date
+             * @description First day of the period (YYYY-MM-DD).
+             */
+            from: string;
+            /**
+             * Format: date
+             * @description Last day of the period (YYYY-MM-DD), at most 366 days after `from`.
+             */
+            to: string;
+            /** @description Optional snapshot from a previous submit response; the request fails if the period changed since. */
+            fingerprint?: string;
+        };
+        ApprovalSubmitResult: {
+            submitted_count: number;
+            submitted_seconds: number;
+            /** @description Snapshot of the period that was submitted. */
+            fingerprint: string;
+        };
+        ApprovalReviewScope: {
+            /** @description The person whose time is reviewed. */
+            user_id: string;
+            /** Format: date */
+            from: string;
+            /**
+             * Format: date
+             * @description At most 366 days after `from`.
+             */
+            to: string;
+            /** @description Limit the review to one project. */
+            project_id?: string;
+        };
+        /** @description Unknown properties are rejected. */
+        ApprovalApproveRequest: components["schemas"]["ApprovalReviewScope"] & {
+            /** @description `preflight.fingerprint` from a 409 response. Required when the scope has warnings. */
+            preflight_fingerprint?: string;
+            /** @description Every current warning code must be listed. */
+            acknowledged_warning_codes?: ("HOURS_BELOW_EXPECTED" | "TIME_OUTSIDE_WORKING_CAPACITY" | "OVERLAPPING_TIMESTAMP_ENTRIES")[];
+        };
+        /** @description Unknown properties are rejected. */
+        ApprovalRejectRequest: components["schemas"]["ApprovalReviewScope"] & {
+            /** @description Sent to the person in the rejection notification. */
+            reason?: string;
+        };
+        ApprovalActionResult: {
+            time_entry_count: number;
+            expense_count: number;
+        };
+        ApprovalApproveResult: components["schemas"]["ApprovalActionResult"] & {
+            preflight_fingerprint: string;
+            acknowledged_warning_codes: string[];
+        };
+        ApprovalPreflightIssue: {
+            /** @enum {string} */
+            code?: "PARTIAL_SUBMISSION" | "RUNNING_TIMER" | "MISSING_REQUIRED_NOTES" | "INVALID_WORK_CONTEXT" | "HOURS_BELOW_EXPECTED" | "TIME_OUTSIDE_WORKING_CAPACITY" | "OVERLAPPING_TIMESTAMP_ENTRIES";
+            /** @enum {string} */
+            severity?: "blocker" | "warning";
+            count?: number;
+            summary?: string;
+            dates?: string[];
+            records?: {
+                id?: string;
+                /** @enum {string} */
+                type?: "time_entry" | "expense";
+                /** Format: date */
+                date?: string;
+            }[];
+        };
+        ApprovalPreflight: {
+            fingerprint?: string;
+            can_approve?: boolean;
+            submitted_time_entry_count?: number;
+            submitted_expense_count?: number;
+            blockers?: components["schemas"]["ApprovalPreflightIssue"][];
+            warnings?: components["schemas"]["ApprovalPreflightIssue"][];
+        };
+        ApprovalConflict: components["schemas"]["Error"] & {
+            /** @enum {string} */
+            error?: "approval_blocked" | "approval_warnings_unacknowledged" | "approval_preflight_stale" | "approval_conflict";
+            preflight?: components["schemas"]["ApprovalPreflight"];
         };
         TimeEntryCreate: {
             project_id: string;
@@ -400,22 +2335,18 @@ export interface components {
             hours?: number;
             notes?: string;
             billable?: boolean;
+            /** @description When true without started_time, the timer starts now and uses the current date in the user's effective timezone, regardless of spent_date. To backdate a running timer, provide both spent_date and started_time; past starts require the workspace setting and future starts are rejected. */
             is_running?: boolean;
-            /** @description When true with is_running, stop any current running timer before creating this one. */
+            /** @description When true with is_running, stop any currently running timer before creating this one. When false or omitted with is_running, the API returns 409 if another timer is already running. */
             replace_running?: boolean;
-            /** @description HH:mm */
+            /** @description HH:mm. When supplied with is_running, combines with spent_date to resolve an explicit timer start; when omitted, a running timer starts now. Otherwise used for start/end time entries. */
             started_time?: string;
             /** @description HH:mm */
             ended_time?: string;
             /** @enum {string} */
-            source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop";
+            source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop" | "mobile" | "integration";
             metadata?: components["schemas"]["Metadata"];
-        };
-        TimeEntryStop: {
-            notes?: string | null;
-        };
-        TimeEntryRestart: {
-            replace_running?: boolean;
+            external_reference?: components["schemas"]["ExternalReference"];
         };
         TimeEntryUpdate: {
             project_id?: string;
@@ -429,6 +2360,8 @@ export interface components {
             ended_time?: string | null;
             /** @description Merged into existing metadata. Set to null to clear. */
             metadata?: components["schemas"]["Metadata"];
+            /** @description Replaces the external reference. Set to null to remove it. */
+            external_reference?: components["schemas"]["ExternalReference"];
         };
         Expense: {
             id?: string;
@@ -437,18 +2370,31 @@ export interface components {
             expense_category_id?: string;
             user?: components["schemas"]["IdName"];
             project?: components["schemas"]["IdName"];
-            expense_category?: components["schemas"]["IdName"];
+            expense_category?: components["schemas"]["ExpenseCategory"];
             /** Format: date */
             spent_date?: string;
             total_cost?: number;
+            /** @description ISO 4217 code `total_cost` is denominated in — the client's currency when the project has one, else the workspace currency. */
+            currency?: string | null;
+            /** @description Quantity with up to six decimal places. */
             units?: number | null;
+            /** @enum {string} */
+            entry_type?: "expense" | "refund";
+            /** @enum {string|null} */
+            adjustment_reason?: "returned_materials" | "vendor_refund" | "correction" | "imported_adjustment" | "other" | null;
+            adjustment_of_id?: string | null;
             notes?: string | null;
             billable?: boolean;
             receipt_file_name?: string | null;
+            receipt_file_size?: number | null;
             receipt_content_type?: string | null;
             receipt_url?: string | null;
+            /** @description Whether invoice creation may copy this stored receipt onto a client invoice. Sending selected receipts is a separate invoice-message choice. */
+            attach_receipt_to_invoice?: boolean;
             is_locked?: boolean;
             is_billed?: boolean;
+            /** @description Keito invoice CUID linked directly or through a grouped invoice line. Null when no local invoice line links the expense, including manually billed or historical imported expenses without a link. Never a Harvest invoice ID. Invoice access permissions are unchanged. */
+            readonly invoice_id?: string | null;
             /** @enum {string} */
             approval_status?: "unsubmitted" | "submitted" | "approved" | "rejected";
             /** @enum {string} */
@@ -459,17 +2405,72 @@ export interface components {
             /** Format: date-time */
             updated_at?: string;
         };
+        ExpenseReceipt: {
+            receipt_file_name?: string;
+            receipt_file_size?: number;
+            receipt_content_type?: string;
+            /** @description Authenticated API v2 path for downloading the original receipt. */
+            receipt_url?: string;
+        };
+        ExpenseCategory: {
+            id?: string;
+            name?: string;
+            unit_name?: string | null;
+            unit_price?: number | null;
+            is_active?: boolean;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        /** @description Every field is optional; at least one is required. Unit-priced categories take `units`, fixed-price categories take `total_cost`. */
+        ExpenseUpdate: {
+            project_id?: string;
+            expense_category_id?: string;
+            /** Format: date */
+            spent_date?: string;
+            total_cost?: number | null;
+            units?: number | null;
+            /** @enum {string} */
+            adjustment_reason?: "returned_materials" | "vendor_refund" | "correction" | "imported_adjustment" | "other";
+            notes?: string | null;
+            billable?: boolean;
+            attach_receipt_to_invoice?: boolean;
+            metadata?: components["schemas"]["Metadata"];
+        };
+        /**
+         * @description Creates an expense for the identity bound to the key. Amount-based categories require
+         *     a positive total_cost and reject units; unit-priced categories require positive units
+         *     and reject total_cost. Unit price comes from the category, never the request.
+         *     Refunds use positive magnitudes with entry_type refund and a required adjustment_reason;
+         *     the response contains a negative total_cost. adjustment_of_id optionally links an original
+         *     expense. Ordinary expense creation rejects refund-only adjustment fields.
+         */
         ExpenseCreate: {
             project_id: string;
             expense_category_id: string;
             /** Format: date */
             spent_date: string;
-            /** @description Either total_cost or units required. */
+            /** @description Required for amount-based categories; disallowed for unit-priced categories. */
             total_cost?: number;
-            /** @description Either total_cost or units required. */
+            /** @description Required for unit-priced categories; up to six decimal places. */
             units?: number;
+            /**
+             * @default expense
+             * @enum {string}
+             */
+            entry_type?: "expense" | "refund";
+            /**
+             * @description Required for refunds; rejected for ordinary expenses.
+             * @enum {string}
+             */
+            adjustment_reason?: "returned_materials" | "vendor_refund" | "correction" | "imported_adjustment" | "other";
+            /** @description Optional original expense ID for a refund; rejected for ordinary expenses. */
+            adjustment_of_id?: string;
             notes?: string;
             billable?: boolean;
+            /** @description Whether invoice creation may copy the stored receipt; uploading the receipt and sending it by email are separate operations. */
+            attach_receipt_to_invoice?: boolean;
             /** @enum {string} */
             source?: "web" | "cli" | "api" | "agent";
             metadata?: components["schemas"]["Metadata"];
@@ -477,17 +2478,27 @@ export interface components {
         Project: {
             id?: string;
             client?: components["schemas"]["IdName"];
+            owner_id?: string | null;
+            owner?: components["schemas"]["RecordOwner"];
             name?: string;
             code?: string | null;
             is_active?: boolean;
+            /** @description Whether the bound user may put new time on this project: false for archived projects, true for owners and administrators on any active project, otherwise the user's assignment must allow time tracking. Servers that return it advertise `project-can-track-time` in `X-Keito-Features`. Absent from the personal-sync representation. */
+            can_track_time?: boolean;
             is_billable?: boolean;
             is_fixed_fee?: boolean;
             bill_by?: string;
+            /** @description Omitted unless authorized for this project. */
             hourly_rate?: number | null;
             fee?: number | null;
             budget_by?: string;
             budget?: number | null;
             budget_is_monthly?: boolean;
+            /**
+             * @description When true, Total Project Hours budgets count only billable time. Ignored by other budget types.
+             * @default false
+             */
+            budget_counts_billable_hours_only?: boolean;
             notify_when_over_budget?: boolean;
             over_budget_notification_percentage?: number | null;
             show_budget_to_all?: boolean;
@@ -498,10 +2509,164 @@ export interface components {
             /** Format: date */
             ends_on?: string | null;
             notes?: string | null;
+            /** @description Active project task assignments. Task budgets are omitted when the caller cannot view the project budget. */
+            tasks?: components["schemas"]["Task"][];
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
             updated_at?: string;
+        };
+        ProjectTemplate: {
+            id: string;
+            name: string;
+            description?: string | null;
+            /** @description Default name offered for projects created from the template. */
+            project_name: string;
+            /** @description Client the template is tied to, or null when it applies to any client. */
+            client_id: string | null;
+            client_name?: string | null;
+            is_billable?: boolean;
+            is_fixed_fee?: boolean;
+            /** @enum {string} */
+            bill_by?: "PROJECT" | "TASKS" | "PEOPLE" | "NONE";
+            /** @enum {string} */
+            budget_by?: "PROJECT" | "PROJECT_HOURS" | "PROJECT_COST" | "TASK" | "TASK_FEES" | "PERSON" | "NONE";
+            task_count: number;
+            people_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description `client_id` is required unless `template_id` names a template tied to a client. */
+        ProjectCreate: {
+            /** @description Project template ID from GET /api/v2/project_templates. Only name, client_id, code, notes, owner_id, starts_on and ends_on may accompany it. */
+            template_id?: string;
+            client_id?: string;
+            /** @description Eligible workspace member ID. Defaults to the authenticated caller. */
+            owner_id?: string;
+            name: string;
+            code?: string;
+            notes?: string;
+            /** @default true */
+            is_billable?: boolean;
+            /**
+             * @description Defaults to PROJECT for billable projects and NONE for non-billable projects.
+             * @enum {string}
+             */
+            bill_by?: "PROJECT" | "TASKS" | "PEOPLE" | "NONE";
+            /**
+             * @default NONE
+             * @enum {string}
+             */
+            budget_by?: "PROJECT" | "PROJECT_HOURS" | "PROJECT_COST" | "TASK" | "TASK_FEES" | "PERSON" | "NONE";
+            /** @default false */
+            is_fixed_fee?: boolean;
+            hourly_rate?: number;
+            /** @description Required when is_fixed_fee is true. */
+            fee?: number;
+            budget?: number;
+            cost_budget?: number;
+            budget_is_monthly?: boolean;
+            /**
+             * @description When true, Total Project Hours budgets count only billable time. Ignored by other budget types.
+             * @default false
+             */
+            budget_counts_billable_hours_only?: boolean;
+            cost_budget_include_expenses?: boolean;
+            notify_when_over_budget?: boolean;
+            over_budget_notification_percentage?: number;
+            show_budget_to_all?: boolean;
+            /** Format: date */
+            starts_on?: string;
+            /**
+             * Format: date
+             * @description Must be on or after starts_on.
+             */
+            ends_on?: string;
+            /** @description Active workspace task IDs to assign. Omit to assign default tasks; pass an empty array to assign none. Each task's workspace default rate is converted into the client's currency when the two differ. */
+            task_ids?: string[];
+        };
+        ProjectUpdate: {
+            client_id?: string;
+            name?: string;
+            code?: string | null;
+            notes?: string | null;
+            is_active?: boolean;
+            is_billable?: boolean;
+            /** @enum {string} */
+            bill_by?: "PROJECT" | "TASKS" | "PEOPLE" | "NONE";
+            /** @enum {string} */
+            budget_by?: "PROJECT" | "PROJECT_HOURS" | "PROJECT_COST" | "TASK" | "TASK_FEES" | "PERSON" | "NONE";
+            is_fixed_fee?: boolean;
+            hourly_rate?: number;
+            fee?: number;
+            budget?: number;
+            cost_budget?: number;
+            budget_is_monthly?: boolean;
+            budget_counts_billable_hours_only?: boolean;
+            cost_budget_include_expenses?: boolean;
+            notify_when_over_budget?: boolean;
+            over_budget_notification_percentage?: number;
+            show_budget_to_all?: boolean;
+            /** Format: date */
+            starts_on?: string;
+            /**
+             * Format: date
+             * @description Must be on or after the effective starts_on.
+             */
+            ends_on?: string;
+        };
+        RetainerBalance: {
+            id: string;
+            name: string | null;
+            client_id: string;
+            /** @description Covered project for PROJECT scope; null for CLIENT scope. The legacy project anchor is never used as coverage. */
+            project_id: string | null;
+            /** @enum {string} */
+            scope: "PROJECT" | "CLIENT";
+            /** @description Retainer currency; balances are never converted or combined across currencies. */
+            currency: string;
+            /**
+             * @description Current status even when as_of is supplied.
+             * @enum {string}
+             */
+            status: "ACTIVE" | "ARCHIVED";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /**
+             * @description Sum of included ADD_FUNDS amounts.
+             * @example 1000.25
+             */
+            funded: string;
+            /**
+             * @description Sum of included DRAW amounts.
+             * @example 250.10
+             */
+            drawn: string;
+            /**
+             * @description Signed sum of included ADJUSTMENT amounts.
+             * @example -10.05
+             */
+            adjustments: string;
+            /**
+             * @description Funded plus adjustments minus drawn; may be negative.
+             * @example 740.10
+             */
+            remaining: string;
+            /**
+             * Format: date
+             * @description Requested inclusive cutoff; null means all current activity dates.
+             */
+            as_of: string | null;
+            /** @enum {string} */
+            balance_basis: "current_corrected_ledger";
+            /** @enum {string} */
+            activity_date_basis: "UTC";
+            /** @enum {string} */
+            status_basis: "current";
         };
         Client: {
             id?: string;
@@ -520,6 +2685,14 @@ export interface components {
             /** Format: date-time */
             updated_at?: string;
         };
+        /** @description The roster shape returned for `GET /api/v2/clients?fields=minimal`. */
+        ClientMinimal: {
+            id: string;
+            name: string;
+            /** @description ISO 4217 code the client is billed in. */
+            currency: string;
+            is_active: boolean;
+        };
         ClientCreate: {
             name: string;
             address?: string;
@@ -533,6 +2706,19 @@ export interface components {
             discount?: number;
             is_active?: boolean;
         };
+        ClientUpdate: {
+            name?: string;
+            address?: string | null;
+            /** @description 3-letter ISO code. */
+            currency?: string;
+            /** @enum {string} */
+            payment_terms?: "company_default" | "upon_receipt" | "net_15" | "net_30" | "net_45" | "net_60" | "custom";
+            payment_days?: number | null;
+            tax?: number | null;
+            tax2?: number | null;
+            discount?: number | null;
+            is_active?: boolean;
+        };
         Contact: {
             id?: string;
             client?: components["schemas"]["IdName"];
@@ -540,6 +2726,8 @@ export interface components {
             last_name?: string | null;
             title?: string | null;
             email?: string | null;
+            /** @enum {string} */
+            invoice_recipient_status?: "none" | "recipient" | "cc" | "bcc";
             phone_office?: string | null;
             phone_mobile?: string | null;
             fax?: string | null;
@@ -554,6 +2742,11 @@ export interface components {
             last_name?: string;
             title?: string;
             email?: string;
+            /**
+             * @default none
+             * @enum {string}
+             */
+            invoice_recipient_status?: "none" | "recipient" | "cc" | "bcc";
             phone_office?: string;
             phone_mobile?: string;
             fax?: string;
@@ -562,7 +2755,14 @@ export interface components {
             id?: string;
             name?: string;
             billable_by_default?: boolean;
+            /** @description Raw task default. Omitted unless the caller has workspace-wide billable-rate visibility. */
             default_hourly_rate?: number | null;
+            /** @description Current effective rate for the authenticated user and requested project/task. Returned only with project_id and authorized visibility; null for non-billable or missing-rate options. */
+            effective_billable_rate?: number | null;
+            /** @description ISO 4217 client currency, falling back to company currency. Returned with effective_billable_rate. */
+            currency?: string;
+            /** @description Project-scoped active task-assignment budget. Returned only with project context and budget visibility; omitted for workspace-global tasks, inactive or missing assignments, and unauthorized callers. An explicit zero is returned as 0. */
+            budget?: number | null;
             is_default?: boolean;
             is_active?: boolean;
             parent_task_id?: string | null;
@@ -570,6 +2770,113 @@ export interface components {
             created_at?: string;
             /** Format: date-time */
             updated_at?: string;
+        };
+        ProjectTaskCreate: {
+            /** @description Project in the authenticated workspace. */
+            project_id: string;
+            name: string;
+            /** @description Defaults to the project's billable setting. */
+            billable?: boolean;
+            hourly_rate?: number | null;
+            budget?: number | null;
+        };
+        ProjectTaskCreated: components["schemas"]["Task"] & {
+            project_id: string;
+            assignment_id: string;
+            /** @description Omitted without billable-rate visibility. */
+            billable?: boolean;
+            /** @description Project assignment rate. Omitted without billable-rate visibility. */
+            hourly_rate?: number | null;
+            /** @description Project assignment budget. Omitted without billable-rate visibility. */
+            budget?: number | null;
+        };
+        ProjectUserAssignment: {
+            id: string;
+            project: {
+                id?: string;
+                name?: string;
+                code?: string | null;
+            };
+            user: components["schemas"]["IdName"];
+            is_active: boolean;
+            is_project_manager: boolean;
+            can_track_time: boolean;
+            can_view_project_financials: boolean;
+            can_view_internal_costs: boolean;
+            /** @description Omitted without billable-rate visibility. */
+            use_default_rates?: boolean;
+            /** @description Project-specific person rate when use_default_rates is false. Omitted without billable-rate visibility; read-only here. */
+            hourly_rate?: number | null;
+            /** @description Person hour budget (used when the project budgets by person). Omitted without billable-rate visibility. */
+            budget?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProjectUserAssignmentCreate: {
+            /** @description An active, assignable member of the authenticated workspace. */
+            user_id: string;
+            /** @description Administrator only when true. */
+            is_project_manager?: boolean;
+            /** @description Defaults to true; only administrators may set false. */
+            can_track_time?: boolean;
+            /** @description Administrator only when true. */
+            can_view_project_financials?: boolean;
+            /** @description Administrator only when true; implies can_view_project_financials. */
+            can_view_internal_costs?: boolean;
+            /** @description Person hour budget. Administrator only. */
+            budget?: number | null;
+        };
+        ProjectUserAssignmentUpdate: {
+            is_active?: boolean;
+            is_project_manager?: boolean;
+            can_track_time?: boolean;
+            can_view_project_financials?: boolean;
+            can_view_internal_costs?: boolean;
+            budget?: number | null;
+        };
+        ProjectTaskAssignment: {
+            id: string;
+            project: {
+                id?: string;
+                name?: string;
+                code?: string | null;
+            };
+            task: components["schemas"]["IdName"];
+            is_active: boolean;
+            /** @description Omitted without project-financials visibility. */
+            billable?: boolean;
+            /** @description Task rate on this project. Omitted without project-financials visibility. */
+            hourly_rate?: number | null;
+            /** @description Task budget on this project (hours, or fees when the project budgets by task fees). Omitted without project-budget visibility. */
+            budget?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProjectTaskAssignmentCreate: {
+            /** @description An active workspace task (not a task that belongs to another project). */
+            task_id: string;
+            /** @description Defaults to the task's billable-by-default setting. */
+            billable?: boolean;
+            /** @description Defaults to the task's default rate. */
+            hourly_rate?: number;
+            budget?: number;
+        };
+        ProjectTaskAssignmentUpdate: {
+            billable?: boolean;
+            hourly_rate?: number | null;
+            budget?: number | null;
+            is_active?: boolean;
+        };
+        ProjectTaskAssignmentRemoval: {
+            id: string;
+            /** @enum {string} */
+            outcome: "archived" | "deleted";
+            /** @enum {boolean} */
+            is_active: false;
         };
         User: {
             id?: string;
@@ -583,23 +2890,397 @@ export interface components {
             is_active?: boolean;
             /** @description Seconds per week (e.g. 144000 = 40h) */
             weekly_capacity?: number;
+            /** @description Omitted unless the caller has workspace billable-rate visibility. */
             default_hourly_rate?: number | null;
-            cost_rate?: number | null;
             currency?: string;
             roles?: string[];
             /** @enum {string} */
             user_type?: "human" | "agent";
             avatar_url?: string | null;
-            company?: components["schemas"]["IdName"];
+            company?: components["schemas"]["CurrentUserCompany"];
+            capabilities?: components["schemas"]["UserCapabilities"];
+            /** @description Present only for AI app connections (MCP connector tokens). */
+            connection?: {
+                label?: string;
+                workspace_bound?: boolean;
+                /** @enum {boolean} */
+                calendar_data_excluded?: true;
+            };
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
             updated_at?: string;
         };
+        /** @description The workspace the credential is bound to, with the policy a time or expense client applies locally. Enum-like strings are lower-case. */
+        CurrentUserCompany: {
+            id: string;
+            name: string;
+            /** @description ISO 4217 workspace currency. */
+            currency: string;
+            /** @description IANA zone every date boundary is computed in. */
+            timezone: string;
+            /** @description The workspace's display date format, e.g. `DD/MM/YYYY`. */
+            date_format: string | null;
+            /** @description Workspace rounding mode (lower-cased `TimeRounding`), e.g. `none`, `min_15`, `minimum_15`, `up_15`. */
+            time_rounding: string;
+            /** @description The rounding rule in words, for report captions that explain why commercial hours differ from tracked time. Null when the workspace does not round (`time_rounding: none`). */
+            time_rounding_description: string | null;
+            /**
+             * @description First day of the workspace week, for week ranges in timesheets and reports.
+             * @enum {string}
+             */
+            week_start_day: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+            /** @description Last month of the workspace's fiscal year (1 = January). */
+            fiscal_year_end_month: number;
+            /** @enum {string} */
+            manual_entry_format: "start_end" | "duration";
+            require_notes: boolean;
+            allow_past_timer_starts: boolean;
+            allow_future_expense_dates: boolean;
+            /** @description False for external client memberships. */
+            internal_time_notes_enabled: boolean;
+            /** @description Lower-cased `InternalTimeNotesVisibility`. */
+            internal_time_notes_visibility: string;
+            /** @description Lower-cased `TimeEntryNotesMode`. */
+            time_entry_notes_mode: string;
+            /** @description False for external client memberships. */
+            time_billability_overrides_enabled: boolean;
+        };
+        WorkspaceUser: {
+            id: string;
+            first_name?: string | null;
+            last_name?: string | null;
+            /** Format: email */
+            email: string;
+            employee_id?: string | null;
+            is_active: boolean;
+            is_contractor: boolean;
+            /** @description Seconds per week from this workspace membership. */
+            weekly_capacity: number;
+            /** @description ISO 4217 currency in which this person's cost rates are stored. */
+            currency: string;
+            /** @description Active custom reporting-role names; these do not grant permissions. */
+            roles: string[];
+            /** @description Workspace permission roles used for authorization. */
+            access_roles: string[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Reduced personal read-only sync directory entry. */
+        SyncWorkspaceUser: {
+            id: string;
+            first_name: string | null;
+            last_name: string | null;
+            is_active: boolean;
+            is_contractor: boolean;
+            /** @description Permission roles retained in this reduced compatibility shape. */
+            roles: string[];
+        };
+        Role: {
+            id: string;
+            name: string;
+            /** @description User CUIDs with an active assignment to this reporting role. */
+            user_ids: string[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        Teammate: {
+            id: string;
+            first_name: string | null;
+            last_name: string | null;
+            /** Format: email */
+            email: string;
+        };
+        CostRate: {
+            id: string;
+            amount: number;
+            /** @description ISO 4217 member currency. Keito does not silently convert API cost-rate writes. */
+            currency: string;
+            /** Format: date */
+            start_date: string | null;
+            /** Format: date */
+            end_date: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CostRateCreate: {
+            amount: number;
+            /**
+             * Format: date
+             * @description Required effective date in YYYY-MM-DD format; future dates are supported.
+             */
+            start_date: string;
+        };
+        PersonalPlanningAssignment: {
+            id: string;
+            readonly revision: number;
+            project: {
+                id: string;
+                name: string;
+                code: string | null;
+            };
+            task: {
+                id: string;
+                name: string;
+            } | null;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            daily_allocations: {
+                /** Format: date */
+                date: string;
+                hours: number;
+            }[];
+            /** @enum {string} */
+            state: "CONFIRMED" | "TENTATIVE";
+            /** @description Workspace-relative Plan URL only when the caller can open Plan; otherwise null. */
+            link: string | null;
+        };
+        PersonalPlanningAvailability: {
+            /** Format: date */
+            date: string;
+            base_hours: number;
+            available_hours: number;
+            scheduled_hours: number;
+            time_off_hours: number;
+            is_public_holiday: boolean;
+            over_allocated_hours: number;
+        };
+        PersonalPlanningSchedule: {
+            person_id: string;
+            workspace_timezone: string;
+            /** @enum {string} */
+            week_start: "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY" | "SUNDAY";
+            range: {
+                /** Format: date */
+                from: string;
+                /** Format: date */
+                to: string;
+            };
+            snapshot_version: string;
+            assignments: components["schemas"]["PersonalPlanningAssignment"][];
+            availability: components["schemas"]["PersonalPlanningAvailability"][];
+            capabilities: {
+                own_read: boolean;
+                manage_assignments: boolean;
+                webhooks: boolean;
+            };
+            pagination: {
+                page: number;
+                per_page: number;
+                total_entries: number;
+                total_pages: number;
+                next_page: number | null;
+            };
+        };
+        PlanningAssignmentItem: {
+            id: string;
+            readonly revision: number;
+            project_id: string;
+            task_id: string | null;
+            user_id: string | null;
+            placeholder_id: string | null;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            hours_per_day: number;
+            /** @enum {string} */
+            allocation_mode: "HOURS_PER_DAY" | "TOTAL_HOURS";
+            total_hours: number | null;
+            /** @enum {string} */
+            status: "CONFIRMED" | "TENTATIVE";
+            notes: string | null;
+            color: string | null;
+            recurrence_series_id: string | null;
+            /** Format: date-time */
+            deleted_at: string | null;
+        };
+        PlanningWebhookEventV2: {
+            /** @description Stable delivery identity across retries; deduplicate by this ID. */
+            id: string;
+            /** @enum {integer} */
+            payload_version: 2;
+            /** @enum {string} */
+            event_type: "assignment.created" | "assignment.updated" | "assignment.deleted" | "time_off.created" | "time_off.approved" | "time_off.rejected" | "time_off.cancelled";
+            /** @enum {string} */
+            entity_type: "planning_assignment" | "planning_time_off";
+            entity_id: string;
+            /** @description Assignment revisions start at 1; time-off uses its existing zero-based version. */
+            revision: number;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        PlanningAssignment: {
+            id?: string;
+            project?: {
+                id?: string;
+                name?: string;
+                code?: string | null;
+                /** @enum {string} */
+                status?: "ACTIVE" | "TENTATIVE" | "ARCHIVED";
+                color?: string | null;
+                exclude_from_utilisation?: boolean;
+                client?: components["schemas"]["IdName"];
+            };
+            task?: components["schemas"]["IdName"] | null;
+            user?: components["schemas"]["IdName"] | null;
+            placeholder?: components["schemas"]["PlanningPlaceholder"] | null;
+            /** Format: date */
+            start_date?: string;
+            /** Format: date */
+            end_date?: string;
+            hours_per_day?: number;
+            /** @enum {string} */
+            allocation_mode?: "HOURS_PER_DAY" | "TOTAL_HOURS";
+            total_hours?: number | null;
+            /** @enum {string} */
+            status?: "CONFIRMED" | "TENTATIVE";
+            notes?: string | null;
+            color?: string | null;
+            /** @description Shared by every occurrence of a weekly-repeat booking, so a series can be grouped; null for a one-off booking. Set by Keito and not writable through the API. */
+            readonly recurrence_series_id?: string | null;
+            planned_hours?: number;
+            tracked_hours?: number;
+            tracked_by_date?: {
+                [key: string]: number;
+            };
+            tracked_ratio?: number;
+            /** Format: date-time */
+            deleted_at?: string | null;
+            readonly revision?: number;
+        };
+        /** @description Exactly one of `user_id` or `placeholder_id` is required. */
+        PlanningAssignmentCreate: {
+            project_id: string;
+            task_id?: string | null;
+            user_id?: string | null;
+            placeholder_id?: string | null;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            hours_per_day: number;
+            /**
+             * @default HOURS_PER_DAY
+             * @enum {string}
+             */
+            allocation_mode?: "HOURS_PER_DAY" | "TOTAL_HOURS";
+            total_hours?: number | null;
+            /**
+             * @default CONFIRMED
+             * @enum {string}
+             */
+            status?: "CONFIRMED" | "TENTATIVE";
+            notes?: string | null;
+            color?: string | null;
+        };
+        /** @description All fields are optional; if either assignee field is supplied exactly one assignee must be non-null. */
+        PlanningAssignmentUpdate: {
+            project_id?: string;
+            task_id?: string | null;
+            user_id?: string | null;
+            placeholder_id?: string | null;
+            /** Format: date */
+            start_date?: string;
+            /** Format: date */
+            end_date?: string;
+            hours_per_day?: number;
+            /** @enum {string} */
+            allocation_mode?: "HOURS_PER_DAY" | "TOTAL_HOURS";
+            total_hours?: number | null;
+            /** @enum {string} */
+            status?: "CONFIRMED" | "TENTATIVE";
+            notes?: string | null;
+            color?: string | null;
+        };
+        PlanningPlaceholder: {
+            id?: string;
+            name?: string;
+            color?: string | null;
+            /** @description Seconds per week */
+            weekly_capacity?: number;
+        };
+        PlanningTimeOff: {
+            id?: string;
+            user_id?: string;
+            /** Format: date */
+            start_date?: string;
+            /** Format: date */
+            end_date?: string;
+            hours_per_day?: number | null;
+            /** @enum {string} */
+            type?: "ANNUAL_LEAVE" | "SICK" | "PUBLIC_HOLIDAY" | "PARENTAL" | "OTHER";
+            /** @description Stable workspace catalogue ID for native bookings */
+            time_off_type_id?: string | null;
+            /** @description Current catalogue label, or the legacy enum label for external/system rows */
+            type_name?: string;
+            /** @description Booking-time allowance snapshot */
+            counts_against_allowance?: boolean;
+            /** @enum {string} */
+            approval_status?: "PENDING" | "APPROVED" | "REJECTED";
+            notes?: string | null;
+            /** @enum {string} */
+            source?: "MANUAL" | "CHARLIE_HR";
+            external_id?: string | null;
+        };
+        PlanningCapacity: {
+            user?: {
+                id?: string;
+                name?: string;
+            };
+            /** Format: date */
+            date?: string;
+            available_hours?: number;
+            scheduled_hours?: number;
+            time_off_hours?: number;
+            utilisation?: number;
+            over_allocated_hours?: number;
+            is_public_holiday?: boolean;
+        };
+        WebhookEndpoint: {
+            id?: string;
+            name?: string | null;
+            /** Format: uri */
+            url?: string;
+            events?: ("assignment.created" | "assignment.updated" | "assignment.deleted" | "time_off.created" | "time_off.approved" | "time_off.rejected" | "time_off.cancelled")[];
+            is_active?: boolean;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+            /**
+             * @description Opt in to minimal signed v2 events. Version 1 preserves existing payloads.
+             * @default 1
+             * @enum {integer}
+             */
+            payload_version?: 1 | 2;
+        };
+        WebhookEndpointCreate: {
+            /** Format: uri */
+            url: string;
+            name?: string | null;
+            /** @description At least 16 characters; required for payload_version=2. HMAC-SHA256 signs timestamp + "." + raw body in X-Keito-Webhook-Signature; timestamp is X-Keito-Webhook-Timestamp. */
+            secret?: string | null;
+            events: ("assignment.created" | "assignment.updated" | "assignment.deleted" | "time_off.created" | "time_off.approved" | "time_off.rejected" | "time_off.cancelled")[];
+            /**
+             * @description Opt in to minimal signed v2 events. Version 1 preserves existing payloads.
+             * @default 1
+             * @enum {integer}
+             */
+            payload_version?: 1 | 2;
+        };
         Invoice: {
             id?: string;
             client_id?: string;
             created_by_id?: string;
+            owner_id?: string | null;
+            owner?: components["schemas"]["RecordOwner"];
             client?: components["schemas"]["IdName"];
             creator?: {
                 id?: string;
@@ -610,9 +3291,28 @@ export interface components {
             purchase_order?: string | null;
             subject?: string | null;
             /** @enum {string} */
-            state?: "draft" | "open" | "paid" | "closed";
+            state?: "draft" | "open" | "paid" | "closed" | "voided";
+            /** @description Open, with a balance due, and past its due date in the workspace timezone. Present on list and detail responses. */
+            is_overdue?: boolean;
             amount?: number;
             due_amount?: number;
+            /** @description Separate verified credit and bank-refund economics. The original amount, due_amount and state retain their existing document meanings. Null when there is no correction. Review-required balances are not reusable credit. These fields do not initiate money movement. */
+            credit_correction?: {
+                /** @enum {string} */
+                status?: "active" | "review_required";
+                credited_amount?: number;
+                credited_tax_amount?: number;
+                credited_tax2_amount?: number;
+                net_invoiced_amount?: number;
+                customer_credit_amount?: number;
+                cash_refunded_amount?: number;
+                pending_refund_amount?: number;
+                accounting_refund_amount?: number;
+                /** Format: date */
+                credit_date?: string;
+                /** Format: date-time */
+                last_verified_at?: string;
+            } | null;
             tax?: number | null;
             tax_amount?: number | null;
             tax2?: number | null;
@@ -631,20 +3331,36 @@ export interface components {
             period_start?: string | null;
             /** Format: date */
             period_end?: string | null;
+            /** Format: date */
+            service_period_start?: string | null;
+            /** Format: date */
+            service_period_end?: string | null;
             /** Format: date-time */
             sent_at?: string | null;
             /** Format: date-time */
             paid_at?: string | null;
             /** Format: date-time */
             closed_at?: string | null;
+            /** @description Number of payments recorded against the invoice. Present on list and detail responses. */
+            payments_count?: number;
+            /**
+             * Format: date-time
+             * @description When the most recent payment was made, or null. Present on list and detail responses.
+             */
+            last_payment_at?: string | null;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
             updated_at?: string;
+            /** @description Omitted from the list when `include_line_items=false`. */
             line_items?: components["schemas"]["LineItem"][];
         };
         InvoiceCreate: {
             client_id: string;
+            /** @description Eligible workspace member ID. Defaults to the authenticated caller. */
+            owner_id?: string;
+            /** @description Optional custom invoice number. Must be unique in the workspace. */
+            number?: string;
             subject?: string;
             /**
              * Format: date
@@ -657,7 +3373,7 @@ export interface components {
              * @default net_30
              * @enum {string}
              */
-            payment_term: "upon_receipt" | "net_15" | "net_30" | "net_45" | "net_60" | "custom";
+            payment_term?: "upon_receipt" | "net_15" | "net_30" | "net_45" | "net_60" | "custom";
             currency?: string;
             purchase_order?: string;
             tax?: number;
@@ -668,22 +3384,79 @@ export interface components {
             period_start?: string;
             /** Format: date */
             period_end?: string;
+            /** Format: date */
+            service_period_start?: string;
+            /** Format: date */
+            service_period_end?: string;
+            /** @description Explicit line items. Mutually exclusive with `line_items_import`. */
             line_items?: {
                 /** @default Service */
-                kind: string;
+                kind?: string;
                 description?: string;
                 /** @default 1 */
-                quantity: number;
+                quantity?: number;
                 /** @default 0 */
-                unit_price: number;
-                /** @default false */
-                taxed: boolean;
-                /** @default false */
-                taxed2: boolean;
+                unit_price?: number;
+                /**
+                 * @description Use `credit` for credit lines. `quantity` and `unit_price` must stay non-negative.
+                 * @default charge
+                 * @enum {string}
+                 */
+                effect?: "charge" | "credit";
+                /** @description Defaults to true when the effective invoice tax rate is non-zero. */
+                taxed?: boolean;
+                /** @description Defaults to true when the effective secondary tax rate is non-zero. */
+                taxed2?: boolean;
+                /** @description Project the line bills. Must belong to the invoice's client (and so to the caller's workspace); otherwise the request is refused with 404 and nothing is created. */
                 project_id?: string;
+                sort_order?: number;
             }[];
+            line_items_import?: components["schemas"]["InvoiceLineItemsImport"];
+        };
+        /** @description Build the invoice's line items from tracked time and expenses instead of supplying them explicitly. Only billable, not-yet-invoiced work is included, and the workspace's approval policy decides whether unapproved work is eligible. Imported lines are taxable when the effective invoice tax rate is non-zero. Imported time entries and expenses are marked as billed. Mutually exclusive with `line_items`; at least one of `time` or `expenses` is required. */
+        InvoiceLineItemsImport: {
+            /** @description Restrict the import to these projects. Omit for all of the client's projects. */
+            project_ids?: string[];
+            time?: {
+                /**
+                 * @description How imported time is grouped into line items. `detailed` creates one line per time entry.
+                 * @enum {string}
+                 */
+                summary_type: "project" | "task" | "people" | "detailed";
+                /**
+                 * @description For grouped time-entry imports (`project`, `task`, or `people`), append each client-facing note as bullet lines. Blank notes are skipped and repeated notes are retained. Internal notes are never included. Keito renders these using existing invoice-description formatting, with HTML-looking content displayed as text. Ignored for `detailed`, which already includes each entry's note in its own line.
+                 * @default false
+                 */
+                include_notes?: boolean;
+                /** @description Restrict the time import to entries owned by these workspace users. Omit to include all owners; an empty array imports no time entries. Repeated IDs are treated as one owner. */
+                user_ids?: string[];
+                /**
+                 * Format: date
+                 * @description Defaults to the earliest uninvoiced entry.
+                 */
+                from?: string;
+                /**
+                 * Format: date
+                 * @description Defaults to the latest uninvoiced entry.
+                 */
+                to?: string;
+            };
+            expenses?: {
+                /** @enum {string} */
+                summary_type: "project" | "category" | "people" | "detailed";
+                /** @description Restrict the expense import to entries owned by these workspace users. Omit to include all owners; an empty array imports no expenses. Repeated IDs are treated as one owner. */
+                user_ids?: string[];
+                /** Format: date */
+                from?: string;
+                /** Format: date */
+                to?: string;
+            };
         };
         InvoiceUpdate: {
+            /** @description Eligible workspace member ID. Omit to leave unchanged; null clears the owner. */
+            owner_id?: string | null;
+            /** @description A unique invoice number for this workspace. */
+            number?: string;
             subject?: string;
             /** Format: date */
             issue_date?: string;
@@ -698,10 +3471,115 @@ export interface components {
             period_start?: string;
             /** Format: date */
             period_end?: string;
+            /** Format: date */
+            service_period_start?: string | null;
+            /** Format: date */
+            service_period_end?: string | null;
+            /** @description Patch existing draft line items in place. Every object must include the line item `id`; replacement arrays and new line items are not accepted. Editing imported lines preserves the billed state of the source time entries and expenses. */
+            line_items?: components["schemas"]["InvoiceLineItemUpdate"][];
         };
+        InvoiceLineItemUpdate: {
+            id: string;
+            kind?: string;
+            /** @enum {string} */
+            effect?: "charge" | "credit";
+            description?: string;
+            quantity?: number;
+            unit_price?: number;
+            taxed?: boolean;
+            taxed2?: boolean;
+        };
+        Estimate: {
+            id?: string;
+            company_id?: string;
+            client_id?: string;
+            created_by_id?: string;
+            owner_id?: string | null;
+            owner?: components["schemas"]["RecordOwner"];
+            client?: components["schemas"]["IdName"];
+            number?: string;
+            purchase_order?: string | null;
+            subject?: string | null;
+            /** @enum {string} */
+            state?: "draft" | "sent" | "viewed" | "accepted" | "declined" | "expired";
+            amount?: number;
+            tax?: number | null;
+            tax_amount?: number | null;
+            tax2?: number | null;
+            tax2_amount?: number | null;
+            discount?: number | null;
+            discount_amount?: number | null;
+            currency?: string;
+            /** Format: date */
+            issue_date?: string;
+            /** Format: date */
+            valid_until?: string | null;
+            notes?: string | null;
+            intro_message?: string | null;
+            /** Format: date-time */
+            sent_at?: string | null;
+            /** Format: date-time */
+            viewed_at?: string | null;
+            /** Format: date-time */
+            accepted_at?: string | null;
+            /** Format: date-time */
+            declined_at?: string | null;
+            /** Format: date-time */
+            expired_at?: string | null;
+            accepted_by_name?: string | null;
+            decline_reason?: string | null;
+            converted_invoice_id?: string | null;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+            line_items?: components["schemas"]["LineItem"][];
+        };
+        EstimateCreate: {
+            client_id: string;
+            /** @description Eligible workspace member ID. Defaults to the authenticated caller. */
+            owner_id?: string | null;
+            number?: string;
+            subject?: string;
+            /** Format: date */
+            issue_date?: string;
+            /** Format: date */
+            valid_until?: string | null;
+            currency?: string;
+            purchase_order?: string;
+            tax?: number;
+            tax2?: number;
+            discount?: number;
+            notes?: string;
+            intro_message?: string;
+            line_items?: {
+                /** @default SERVICE */
+                kind?: string;
+                description?: string;
+                /** @default 1 */
+                quantity?: number;
+                /** @default 0 */
+                unit_price?: number;
+                /** @default false */
+                taxed?: boolean;
+                /** @default false */
+                taxed2?: boolean;
+                /** @description Project the line refers to. Must belong to the estimate's client (and so to the caller's workspace); otherwise the request is refused with 404. */
+                project_id?: string | null;
+            }[];
+        };
+        EstimateUpdate: components["schemas"]["EstimateCreate"];
+        RecordOwner: {
+            id?: string;
+            name?: string | null;
+            /** Format: email */
+            email?: string;
+        } | null;
         LineItem: {
             id?: string;
             kind?: string;
+            /** @enum {string} */
+            effect?: "charge" | "credit";
             description?: string | null;
             quantity?: number;
             unit_price?: number;
@@ -709,6 +3587,32 @@ export interface components {
             taxed?: boolean;
             taxed2?: boolean;
             project_id?: string | null;
+            sort_order?: number;
+        };
+        InvoiceAttachment: {
+            id?: string;
+            invoice_id?: string;
+            file_name?: string;
+            /** @description Size in bytes */
+            file_size?: number;
+            content_type?: string;
+            /**
+             * @description `upload` for files added by a person, `time_report` for the Excel time report Keito generated from the time billed on the invoice.
+             * @enum {string}
+             */
+            kind?: "upload" | "time_report";
+            uploaded_by_id?: string;
+            download_url?: string;
+            uploaded_by?: {
+                id?: string;
+                name?: string | null;
+                /** Format: email */
+                email?: string;
+            } | null;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
         };
         InvoiceMessage: {
             id?: string;
@@ -718,9 +3622,17 @@ export interface components {
             sent_from?: string | null;
             sent_from_email?: string | null;
             recipients?: unknown;
+            cc_recipients?: {
+                name?: string;
+                /** Format: email */
+                email: string;
+            }[];
             subject?: string | null;
             body?: string | null;
             attach_pdf?: boolean;
+            attach_expense_receipts?: boolean;
+            /** @description Whether uploaded invoice attachments (and generated time reports) were included in the email. */
+            attach_files?: boolean;
             send_me_a_copy?: boolean;
             thank_you?: boolean;
             reminder?: boolean;
@@ -730,25 +3642,272 @@ export interface components {
             /** Format: date-time */
             updated_at?: string;
         };
+        /** @description `recipients` is required for email events and omitted for `mark_sent`. */
         InvoiceMessageCreate: {
-            recipients: {
-                name: string;
+            recipients?: {
+                name?: string;
                 /** Format: email */
                 email: string;
             }[];
+            /**
+             * @description Optional CC recipients. The combined recipients and cc_recipients limit is 50.
+             * @default []
+             */
+            cc_recipients?: {
+                name?: string;
+                /** Format: email */
+                email: string;
+            }[];
+            /**
+             * @description Include expense receipts selected when the invoiced expenses were recorded.
+             * @default true
+             */
+            attach_expense_receipts?: boolean;
+            /**
+             * @description Send selected expense receipts as separate original files or as one combined PDF. Combined PDF supports PDF, JPEG, and PNG receipts.
+             * @default separate
+             * @enum {string}
+             */
+            expense_receipt_delivery?: "separate" | "combined_pdf";
             subject?: string;
             body?: string;
             /** @default true */
-            attach_pdf: boolean;
+            attach_pdf?: boolean;
             /** @default false */
-            send_me_a_copy: boolean;
-            /** @default false */
-            include_attachments: boolean;
+            send_me_a_copy?: boolean;
+            /**
+             * @description Include the invoice's uploaded files and generated time report as email attachments. The invoice PDF, receipts and files must fit within the 9 MB email limit.
+             * @default true
+             */
+            include_attachments?: boolean;
             /**
              * @default send
              * @enum {string}
              */
-            event_type: "send" | "reminder" | "thank_you";
+            event_type?: "send" | "mark_sent" | "resend" | "reminder" | "thank_you";
+            confirm?: components["schemas"]["InvoiceConfirmation"];
+        };
+        /** @description What the caller believes is about to be issued. Compared with the invoice before any state change; a mismatch is a 409 `confirmation_mismatch`. */
+        InvoiceConfirmation: {
+            /** @description Invoice total, compared at two decimal places. */
+            amount: number | string;
+            /** @example GBP */
+            currency: string;
+            /** @description Number of distinct To recipients after de-duplication; 0 for `mark_sent`. */
+            recipient_count?: number;
+        };
+        InvoicePaymentDeletion: {
+            id: string;
+            invoice_id: string;
+            /** @description True when the payment is gone from Keito. */
+            deleted: boolean;
+            /** @enum {string} */
+            outcome: "deleted" | "kept_in_keito";
+            accounting_sync: {
+                /** @enum {string} */
+                provider: "XERO" | "QUICKBOOKS";
+                /** @enum {string} */
+                status: "SYNCED" | "PENDING" | "NEEDS_ATTENTION" | "NOT_APPLICABLE";
+                message?: string;
+            };
+            /** @description Only when `outcome` is `kept_in_keito`; why the payment was not removed. */
+            message?: string;
+        };
+        InvoicePaymentCreate: {
+            amount: number;
+            /**
+             * Format: date-time
+             * @description Defaults to the current time.
+             */
+            paid_at?: string;
+            notes?: string;
+            transaction_id?: string;
+            payment_gateway?: string;
+            /** @description Overrides the workspace's automatic thank-you preference for this payment. */
+            send_thank_you?: boolean;
+        };
+        InvoicePayment: {
+            id?: string;
+            invoice_id?: string;
+            amount?: number;
+            /** Format: date-time */
+            paid_at?: string;
+            /** Format: date */
+            paid_date?: string;
+            recorded_by?: string | null;
+            recorded_by_email?: string | null;
+            notes?: string | null;
+            transaction_id?: string | null;
+            payment_gateway_id?: string | null;
+            payment_gateway?: string | null;
+            /** @enum {string} */
+            origin?: "manual" | "stripe" | "paypal" | "retainer" | "xero" | "quickbooks" | "harvest_import" | "legacy";
+            /** @description Only on `GET /api/v2/invoices/{id}/payments`. True when the payment was recorded manually and the caller may manage invoices. */
+            deletable?: boolean;
+            accounting_sync?: Record<string, never>;
+            thank_you?: Record<string, never>;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        HarvestReportPaginationEnvelope: components["schemas"]["PaginationEnvelope"] & {
+            next_page: number | null;
+            previous_page: number | null;
+        };
+        ProjectBudgetReportResult: {
+            project_id: string;
+            project_name: string;
+            client_id: string;
+            client_name: string;
+            budget_is_monthly: boolean;
+            /** @enum {string} */
+            budget_by: "project" | "project_hours" | "project_cost" | "task" | "task_fees" | "person";
+            is_active: boolean;
+            budget: number;
+            budget_spent: number;
+            budget_remaining: number;
+        };
+        AmountByCurrency: {
+            /** @example GBP */
+            currency: string;
+            /** @example 275 */
+            amount: number;
+        };
+        RateByCurrency: {
+            /** @example GBP */
+            currency: string;
+            /**
+             * @description Weighted effective billable rate per hour.
+             * @example 100
+             */
+            rate: number;
+        };
+        /**
+         * @description One row of a member-facing time report. Hours are decimal hours to two
+         *     places, rounded per entry by the workspace rule. The amount and rate
+         *     fields are present only when the caller may view billable rates.
+         */
+        TimeReportRow: {
+            id: string;
+            name: string;
+            total_hours: number;
+            billable_hours: number;
+            non_billable_hours: number;
+            /** @description Hours on fixed-fee projects (a subset of total_hours). */
+            fixed_fee_hours: number;
+            /** @description The one currency every amount on the row is in; null when the row mixes currencies or has nothing billable. */
+            currency?: string | null;
+            /** @description The billable amount in `currency`; null when the row mixes currencies. */
+            billable_amount?: number | null;
+            /** @description The weighted effective rate in `currency`; null when mixed or nothing is billable. */
+            rate?: number | null;
+            billable_amounts?: components["schemas"]["AmountByCurrency"][];
+            rates?: components["schemas"]["RateByCurrency"][];
+        };
+        TimeReportProjectRow: components["schemas"]["TimeReportRow"] & {
+            client_id: string;
+            client_name: string;
+            code: string | null;
+            is_fixed_fee: boolean;
+        };
+        TimeReportTaskRow: components["schemas"]["TimeReportRow"] & {
+            /** @description This task's share of the report's hours, in percent. */
+            percent_of_total: number;
+        };
+        /** @description Totals over every row of the report, before paging. */
+        TimeReportSummary: {
+            total_hours: number;
+            billable_hours: number;
+            non_billable_hours: number;
+            fixed_fee_hours: number;
+            /** @description Billable hours as a percentage of total hours; 0 for an empty report. */
+            billable_percent: number;
+            /** @description False when the caller may not view billable rates; every amount and rate is then omitted from the rows and this summary. */
+            amounts_visible: boolean;
+            /** @description Present only when `amounts_visible` is true. */
+            billable_amounts?: components["schemas"]["AmountByCurrency"][];
+            rounding: {
+                /**
+                 * @description The workspace time-rounding setting, lower-cased.
+                 * @example min_15
+                 */
+                mode: string;
+                /**
+                 * @description Human-readable rounding rule; null when the workspace does not round.
+                 * @example rounded to the nearest 15 minutes
+                 */
+                description: string | null;
+            };
+        };
+        ProjectBillingSummary: {
+            project: {
+                id: string;
+                name: string;
+                code: string | null;
+                client: components["schemas"]["IdName"];
+                /**
+                 * @description The client's currency; every amount outside `by_currency` is in it.
+                 * @example GBP
+                 */
+                currency: string;
+                is_fixed_fee: boolean;
+                is_active: boolean;
+            };
+            period: {
+                /** Format: date */
+                from: string;
+                /** Format: date */
+                to: string;
+            } | null;
+            invoiced: {
+                /** @description Issued (open, paid, closed) invoice line amounts for this project in the project currency. */
+                amount: number;
+                currency: string;
+                /** @description Issued amounts per invoice currency; never summed across currencies. */
+                by_currency: {
+                    currency: string;
+                    amount: number;
+                }[];
+                /** @description Draft invoice line amounts for this project in the project currency; not part of `amount`. */
+                draft_amount: number;
+            };
+            invoices_by_state: {
+                draft: number;
+                open: number;
+                paid: number;
+                closed: number;
+                voided: number;
+            };
+            uninvoiced: {
+                /** @description Unbilled billable hours (workspace rounding). */
+                hours: number;
+                time_amount: number;
+                expense_amount: number;
+                /** @description Unbilled time or fixed-fee balance plus unbilled expenses. */
+                amount: number;
+                currency: string;
+            };
+            budget: components["schemas"]["ProjectBudgetReportResult"] | null;
+            /** @description True when calendar-derived time was left out of the uninvoiced figures (always true for AI app connections). */
+            calendar_time_excluded: boolean;
+            includes_unapproved_billable_work: boolean;
+        };
+        UninvoicedReportResult: {
+            client_id: string;
+            client_name: string;
+            project_id: string;
+            project_name: string;
+            /** @example GBP */
+            currency: string;
+            /** @description Billable hours in the selected period that satisfy the workspace approval policy. */
+            total_hours: number;
+            /** @description Unbilled billable hours in the selected period. */
+            uninvoiced_hours: number;
+            /** @description Unbilled billable expense amount in the selected period. */
+            uninvoiced_expenses: number;
+            /** @description Unbilled time or fixed-fee balance plus unbilled expenses. */
+            uninvoiced_amount: number;
         };
         TeamTimeResult: {
             user_id?: string;
@@ -757,13 +3916,101 @@ export interface components {
             /** @description Seconds per week */
             weekly_capacity?: number;
             avatar_url?: string | null;
+            /** @description Hours rounded per the workspace time-rounding setting (Harvest-compatible). Equals actual_hours when rounding is off. */
             total_hours?: number;
+            /** @description Billable hours rounded per the workspace time-rounding setting (Harvest-compatible). */
             billable_hours?: number;
             currency?: string;
+            /** @description Rounded billable hours multiplied by the billable rate. */
             billable_amount?: number;
+            /** @description Keito extension. Actual unrounded hours for payroll and accountability consumers; additive so Harvest-compatible clients are unaffected. */
+            actual_hours?: number;
         };
     };
     responses: {
+        /**
+         * @description The `Idempotency-Key` was already used for a different request (`key_reused`), the original
+         *     request ran under different permissions (`authorization_changed`), is still processing
+         *     (`in_progress`), or never finished (`idempotency_unresolved` — read the resource before
+         *     retrying with a new key).
+         */
+        IdempotencyConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description A conflict described by `message` (for example an approved, locked or already-running
+         *     entry), or an `Idempotency-Key` conflict (`key_reused`, `authorization_changed`,
+         *     `in_progress`, `idempotency_unresolved`).
+         */
+        IdempotencyOrDomainConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description A conflict described by `message` (for example `running_timer_conflict`, a timer that is
+         *     not running, or an approved-week lock), an `Idempotency-Key` conflict (`key_reused`,
+         *     `authorization_changed`, `in_progress`, `idempotency_unresolved`), or — for an AI app
+         *     connection whose `Keito-Account-Id` names a workspace other than the one it is bound
+         *     to — `workspace_mismatch` with `bound_company_id`.
+         */
+        IdempotencyDomainOrWorkspaceConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"] | components["schemas"]["WorkspaceMismatch"];
+            };
+        };
+        /**
+         * @description The request came from an AI app connection (MCP connector token) that is bound to one
+         *     workspace, and `Keito-Account-Id` named another. Every route an AI app may reach returns
+         *     this; the app should re-read `GET /api/v2/users/me` and use `bound_company_id`.
+         */
+        WorkspaceMismatch: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["WorkspaceMismatch"];
+            };
+        };
+        /**
+         * @description Forbidden by the route's role or permission rule, or — for an AI app
+         *     connection (MCP connector token) whose member lacks the capability the
+         *     route needs — `error: mcp_capability_required` with the `capability`
+         *     name as it appears under `capabilities` on `GET /api/v2/users/me`.
+         */
+        ForbiddenOrCapabilityRequired: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"] | components["schemas"]["McpCapabilityRequired"];
+            };
+        };
+        /**
+         * @description `confirmation_mismatch`: the invoice's current amount, currency or
+         *     recipient count differs from `confirm`; `expected` and `received` say
+         *     how, and nothing changed. Or an `Idempotency-Key` conflict
+         *     (`key_reused`, `authorization_changed`, `in_progress`, `idempotency_unresolved`).
+         */
+        InvoiceConfirmationOrIdempotencyConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"] | components["schemas"]["InvoiceConfirmationMismatch"];
+            };
+        };
         /** @description Bad request */
         BadRequest: {
             headers: {
@@ -800,20 +4047,263 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description Conflict */
+        Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
+        /** @description Set to true to exclude calendar-derived time, including entries with retained calendar provenance under another source. Ordinary API clients default to false; MCP OAuth connections always exclude this time even if false is supplied. Only the exact values true and false are accepted; repeated values return 400. Pagination links retain this option. In project billing summaries this filters uninvoiced work only; issued invoice amounts and all-source project budgets are not recalculated. Not available to personal read-only sync keys. */
+        exclude_calendar: boolean;
+        /**
+         * @description Inclusive activity calendar date in YYYY-MM-DD format (UTC). Must be a
+         *     real date. Late-entered activities dated through this date count;
+         *     currently voided activities do not. Omitted includes all current activity
+         *     dates. This is a corrected-ledger cutoff, not a recorded-at-time snapshot.
+         */
+        retainerAsOf: string;
+        PathId: string;
         page: number;
         per_page: number;
+        /** @description Unique key for safely retrying the same mutation for 24 hours. */
+        IdempotencyKey: string;
+        /** @description Unique key for safely retrying the same mutation for 24 hours. */
+        OptionalIdempotencyKey: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description Present (`true`) when the response was replayed from an earlier request with the same `Idempotency-Key`. */
+        IdempotencyReplayed: "true";
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getExpenseReimbursementClassification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID in the authenticated workspace. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Expense reimbursement classification. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseReimbursementClassification"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Expense feature or current access is unavailable. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Expense not found in the authenticated workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authenticated workspace binding does not match. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    classifyExpenseReimbursement: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Retry an identical request with this key; a changed payload or authority conflicts. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description Expense CUID in the authenticated workspace. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "reimbursable": false,
+                 *       "expected_expense_version": 3
+                 *     }
+                 */
+                "application/json": components["schemas"]["ExpenseReimbursementClassificationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Saved classification and its new expense version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseReimbursementClassification"];
+                };
+            };
+            /** @description Invalid JSON, missing version or classification, or an unsupported field. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Expense feature, reimbursement opt-in, plan or current authority is unavailable. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Expense not found in the authenticated workspace. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale version, protected expense or repayment history, or idempotency/workspace conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listClickUpLocations: {
+        parameters: {
+            query?: {
+                space_id?: string;
+                /** @description Requires space_id */
+                folder_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Object containing spaces, folders and lists arrays */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listClickUpMappings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Object containing a mappings array; each mapping includes its version and minimal project/task labels */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    upsertClickUpMapping: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    locationType: "SPACE" | "FOLDER" | "LIST";
+                    clickUpSpaceId: string;
+                    /** @description Required for FOLDER */
+                    clickUpFolderId?: string | null;
+                    /** @description Required for LIST */
+                    clickUpListId?: string | null;
+                    clickUpSpaceName?: string | null;
+                    clickUpFolderName?: string | null;
+                    clickUpListName?: string | null;
+                    /** @description Keito project CUID */
+                    projectId: string;
+                    /** @description Required Keito task CUID */
+                    taskId: string;
+                    /** @description Null inherits Keito policy */
+                    billableOverride?: boolean | null;
+                    expectedVersion: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved mapping with incremented version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     listTimeEntries: {
         parameters: {
             query?: {
+                /** @description Set to true to exclude calendar-derived time, including entries with retained calendar provenance under another source. Ordinary API clients default to false; MCP OAuth connections always exclude this time even if false is supplied. Only the exact values true and false are accepted; repeated values return 400. Pagination links retain this option. In project billing summaries this filters uninvoiced work only; issued invoice amounts and all-source project budgets are not recalculated. Not available to personal read-only sync keys. */
+                exclude_calendar?: components["parameters"]["exclude_calendar"];
                 page?: components["parameters"]["page"];
                 per_page?: components["parameters"]["per_page"];
                 /** @description Filter by user CUID */
@@ -821,15 +4311,29 @@ export interface operations {
                 client_id?: string;
                 project_id?: string;
                 task_id?: string;
+                /** @description Alias for task_id. When both are supplied their values must match. */
+                task?: string;
                 is_billed?: boolean;
+                /** @description Filter by a Keito invoice CUID linked directly or through a grouped invoice line. Combined with other filters before pagination. Blank, conflicting repeated, or internally whitespace-containing values return 400. Unknown invoices or invoices outside the current workspace return an empty list. Not available to personal read-only sync keys. */
+                invoice_id?: string;
                 is_running?: boolean;
+                /** @description Filter by Keito approval state. Not available to personal read-only sync keys. */
+                approval_status?: "unsubmitted" | "submitted" | "approved" | "rejected";
                 /** @description Start date (YYYY-MM-DD) */
                 from?: string;
                 /** @description End date (YYYY-MM-DD) */
                 to?: string;
                 updated_since?: string;
                 /** @description Filter by entry source. Comma-separated for multiple (e.g. `agent,cli`). */
-                source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop";
+                source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop" | "mobile" | "integration" | "extension";
+                /** @description External object identifier. Must be used with `external_reference_service`. */
+                external_reference_id?: string;
+                /** @description External service identifier such as `zendesk.com`. Must be used with `external_reference_id`. */
+                external_reference_service?: string;
+                /** @description Optional external group or scope identifier. */
+                external_reference_group_id?: string;
+                /** @description Optional external account identifier. */
+                external_reference_account_id?: string;
             };
             header?: never;
             path?: never;
@@ -849,12 +4353,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            409: components["responses"]["WorkspaceMismatch"];
         };
     };
     createTimeEntry: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -867,6 +4375,7 @@ export interface operations {
             /** @description Created time entry */
             200: {
                 headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -877,21 +4386,16 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Conflict — another timer is already running */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            409: components["responses"]["IdempotencyDomainOrWorkspaceConflict"];
         };
     };
     deleteTimeEntry: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path: {
                 /** @description Time entry CUID */
                 id: string;
@@ -909,21 +4413,16 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Conflict — entry is approved */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            409: components["responses"]["IdempotencyOrDomainConflict"];
         };
     };
     updateTimeEntry: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path: {
                 /** @description Time entry CUID */
                 id: string;
@@ -939,6 +4438,7 @@ export interface operations {
             /** @description Updated time entry */
             200: {
                 headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -948,12 +4448,16 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyDomainOrWorkspaceConflict"];
         };
     };
-    stopTimeEntry: {
+    stopTimeEntryTimer: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path: {
                 /** @description Time entry CUID */
                 id: string;
@@ -962,28 +4466,41 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["TimeEntryStop"];
+                "application/json": {
+                    /** @description Optional notes replacement when the entry is editable. */
+                    notes?: string;
+                    /**
+                     * Format: date-time
+                     * @description Optional explicit stop instant for offline replay.
+                     */
+                    stopped_at?: string;
+                };
             };
         };
         responses: {
             /** @description Stopped time entry */
             200: {
                 headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TimeEntry"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyDomainOrWorkspaceConflict"];
         };
     };
-    restartTimeEntry: {
+    restartTimeEntryTimer: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path: {
                 /** @description Time entry CUID */
                 id: string;
@@ -992,11 +4509,14 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["TimeEntryRestart"];
+                "application/json": {
+                    /** @default false */
+                    replace_running?: boolean;
+                };
             };
         };
         responses: {
-            /** @description Restarted time entry */
+            /** @description Restarted running time entry */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1006,9 +4526,132 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Conflict — another timer is already running */
+            /**
+             * @description Conflict, including `running_entry` when another timer is running, or an
+             *     `Idempotency-Key` conflict (`key_reused`, `authorization_changed`, `in_progress`,
+             *     `idempotency_unresolved`).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunningTimerConflict"];
+                };
+            };
+        };
+    };
+    adjustRunningTimeEntryTimer: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Running time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    action: "stop_and_remove";
+                    /** Format: date-time */
+                    inactive_started_at: string;
+                    /** Format: date-time */
+                    expected_timer_started_at: string;
+                } | {
+                    /** @enum {string} */
+                    action: "continue_and_remove";
+                    /** Format: date-time */
+                    inactive_started_at: string;
+                    /** Format: date-time */
+                    resumed_at: string;
+                    /** Format: date-time */
+                    expected_timer_started_at: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Adjusted stopped entry and optional continued running entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        time_entry: components["schemas"]["TimeEntry"];
+                        running_time_entry: components["schemas"]["TimeEntry"] | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+        };
+    };
+    removeTimeEntryExternalReference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Time entry CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description External reference removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    submitTimesheet: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Submitted (a period with nothing to submit returns `submitted_count` 0) */
+            200: {
+                headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalSubmitResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description `running_timer`, `submission_stale` or `submission_conflict`, or an `Idempotency-Key` conflict. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1019,15 +4662,129 @@ export interface operations {
             };
         };
     };
+    approveTimesheet: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved (nothing submitted in scope returns zero counts) */
+            200: {
+                headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalApproveResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Preflight review required or a concurrent change, or an `Idempotency-Key` conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalConflict"];
+                };
+            };
+        };
+    };
+    rejectTimesheet: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalRejectRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejected (nothing submitted in scope returns zero counts) */
+            200: {
+                headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalActionResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+        };
+    };
+    summarizeExternalReference: {
+        parameters: {
+            query: {
+                /** @example zendesk.com */
+                service: string;
+                /** @example 12345 */
+                id: string;
+                group_id?: string;
+                account_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description External-reference time summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalReferenceSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     listExpenses: {
         parameters: {
             query?: {
                 page?: components["parameters"]["page"];
                 per_page?: components["parameters"]["per_page"];
+                /**
+                 * @description Optional expense owner filter. Use `me` for the authenticated API-key
+                 *     user. When omitted, owners and administrators receive expenses for the
+                 *     whole workspace; other members receive only their own expenses.
+                 */
                 user_id?: string;
                 client_id?: string;
                 project_id?: string;
+                /** @description Limit results to one expense category in the current workspace. */
+                expense_category_id?: string;
+                /** @description Filter by the expense approval state. */
+                approval_status?: "unsubmitted" | "submitted" | "approved";
                 is_billed?: boolean;
+                /** @description Filter by a Keito invoice CUID linked directly or through a grouped invoice line. Combined with other filters before pagination. Blank, conflicting repeated, or internally whitespace-containing values return 400. Unknown invoices or invoices outside the current workspace return an empty list. */
+                invoice_id?: string;
                 from?: string;
                 to?: string;
                 updated_since?: string;
@@ -1051,12 +4808,16 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            409: components["responses"]["WorkspaceMismatch"];
         };
     };
     createExpense: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -1069,6 +4830,7 @@ export interface operations {
             /** @description Created expense */
             200: {
                 headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -1078,6 +4840,227 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyDomainOrWorkspaceConflict"];
+        };
+    };
+    getExpense: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Expense */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteExpense: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                /** @description Expense CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Expense deleted */
+            200: {
+                headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success?: true;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+        };
+    };
+    updateExpense: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                /** @description Expense CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated expense */
+            200: {
+                headers: {
+                    "Idempotency-Replayed": components["headers"]["IdempotencyReplayed"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+        };
+    };
+    getExpenseReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID in the authenticated workspace. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Original receipt bytes with the stored Content-Type. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "private, no-store";
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    uploadExpenseReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID in the authenticated workspace. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description Non-empty original receipt file, at most 9 MiB.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Receipt stored and attached to the expense. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseReceipt"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteExpenseReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Expense CUID in the authenticated workspace. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt removed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        success?: true;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listExpenseCategories: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                is_active?: boolean;
+                updated_since?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated expense categories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        expense_categories?: components["schemas"]["ExpenseCategory"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WorkspaceMismatch"];
         };
     };
     listProjects: {
@@ -1088,6 +5071,8 @@ export interface operations {
                 is_active?: boolean;
                 client_id?: string;
                 updated_since?: string;
+                /** @description Eligible workspace member ID, or `unassigned`. */
+                owner_id?: string;
             };
             header?: never;
             path?: never;
@@ -1107,6 +5092,675 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            409: components["responses"]["WorkspaceMismatch"];
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreate"];
+            };
+        };
+        responses: {
+            /** @description Created project */
+            201: {
+                headers: {
+                    Location?: string;
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description Request body exceeds 131072 bytes. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Content-Type must be JSON and Content-Encoding must be identity. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProjectTemplates: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project templates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        project_templates?: components["schemas"]["ProjectTemplate"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    reviewProjectsForArchive: {
+        parameters: {
+            query?: {
+                inactive_days?: number;
+                started_before?: string;
+                imported_only?: boolean;
+                client_id?: string;
+                search?: string;
+                readiness?: "all" | "ready" | "needs_review";
+                page?: components["parameters"]["page"];
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated archive candidates, warning reasons, review timestamp and total counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    preflightProjectArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    project_ids: string[];
+                    criteria: {
+                        inactive_days: number;
+                        /** Format: date */
+                        started_before?: string;
+                        imported_only: boolean;
+                    };
+                    /** Format: date-time */
+                    reviewed_at: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Exact selection statuses, warnings and optional review token. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            /** @description Review timestamp is stale or in the future. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    archiveReviewedProjects: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    review_token: string;
+                    confirm_project_ids: string[];
+                    /** @enum {boolean} */
+                    confirm_archive: true;
+                    /** @default false */
+                    acknowledge_warnings?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Archived, blocked and failed counts with per-project outcomes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description Invalid or changed review, selection or warning state. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Warning acknowledgement is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project details */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project deleted and invoice history preserved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description If-Match does not match the current project version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description If-Match is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated project */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description If-Match does not match the current project version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request body exceeds 131072 bytes. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Content-Type must be JSON and Content-Encoding must be identity. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProjectUserAssignments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                is_active?: boolean;
+                updated_since?: string;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated project team */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        user_assignments?: components["schemas"]["ProjectUserAssignment"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createProjectUserAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUserAssignmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Person added or restored */
+            201: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectUserAssignment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+        };
+    };
+    getProjectUserAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project user assignment */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectUserAssignment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteProjectUserAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated project user assignment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectUserAssignment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description If-Match does not match the current assignment version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateProjectUserAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUserAssignmentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated project user assignment */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectUserAssignment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description If-Match does not match the current assignment version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listProjectTaskAssignments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                is_active?: boolean;
+                updated_since?: string;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated task assignments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        task_assignments?: components["schemas"]["ProjectTaskAssignment"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createProjectTaskAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectTaskAssignmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Task assigned or restored */
+            201: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaskAssignment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+        };
+    };
+    getProjectTaskAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project task assignment */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaskAssignment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteProjectTaskAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task removed from the project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaskAssignmentRemoval"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description If-Match does not match the current assignment version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateProjectTaskAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                projectId: string;
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectTaskAssignmentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated task assignment */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaskAssignment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description If-Match does not match the current assignment version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listClients: {
@@ -1114,6 +5768,8 @@ export interface operations {
             query?: {
                 page?: components["parameters"]["page"];
                 per_page?: components["parameters"]["per_page"];
+                /** @description Return only `id`, `name`, `currency` and `is_active` per client. */
+                fields?: "minimal";
                 is_active?: boolean;
                 updated_since?: string;
             };
@@ -1130,17 +5786,23 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginationEnvelope"] & {
-                        clients?: components["schemas"]["Client"][];
+                        clients?: (components["schemas"]["Client"] | components["schemas"]["ClientMinimal"])[];
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WorkspaceMismatch"];
         };
     };
     createClient: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -1151,8 +5813,10 @@ export interface operations {
         };
         responses: {
             /** @description Created client */
-            200: {
+            201: {
                 headers: {
+                    Location?: string;
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1162,6 +5826,21 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["IdempotencyConflict"];
+            /** @description Request body exceeds 131072 bytes. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Content-Type must be JSON and Content-Encoding must be identity. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getClient: {
@@ -1178,6 +5857,7 @@ export interface operations {
             /** @description Client details */
             200: {
                 headers: {
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1187,10 +5867,55 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    deleteClient: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client deleted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+            /** @description If-Match does not match the current client version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description If-Match is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     updateClient: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string;
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path: {
                 id: string;
             };
@@ -1198,13 +5923,14 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ClientCreate"];
+                "application/json": components["schemas"]["ClientUpdate"];
             };
         };
         responses: {
             /** @description Updated client */
             200: {
                 headers: {
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -1213,6 +5939,28 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+            /** @description If-Match does not match the current client version. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Request body exceeds 131072 bytes. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Content-Type must be JSON and Content-Encoding must be identity. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listContacts: {
@@ -1246,7 +5994,10 @@ export interface operations {
     createContact: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -1266,7 +6017,9 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
         };
     };
     listTasks: {
@@ -1275,6 +6028,8 @@ export interface operations {
                 page?: components["parameters"]["page"];
                 per_page?: components["parameters"]["per_page"];
                 is_active?: boolean;
+                /** @description Return tasks assigned to this project and resolve project/task tracking rates. */
+                project_id?: string;
                 updated_since?: string;
             };
             header?: never;
@@ -1295,6 +6050,138 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            409: components["responses"]["WorkspaceMismatch"];
+        };
+    };
+    createProjectTask: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectTaskCreate"];
+            };
+        };
+        responses: {
+            /** @description Project task and assignment created or restored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaskCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated reporting roles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        roles?: components["schemas"]["Role"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                is_active?: boolean;
+                employee_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated workspace user directory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": (components["schemas"]["PaginationEnvelope"] & {
+                        users?: components["schemas"]["WorkspaceUser"][];
+                    }) | (components["schemas"]["PaginationEnvelope"] & {
+                        users?: components["schemas"]["SyncWorkspaceUser"][];
+                    });
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listUserTeammates: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+            };
+            header?: never;
+            path: {
+                /** @description Workspace manager user CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated assigned teammate identities */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        teammates?: components["schemas"]["Teammate"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The requested workspace user is not a manager */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getCurrentUser: {
@@ -1316,6 +6203,605 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            409: components["responses"]["WorkspaceMismatch"];
+        };
+    };
+    listUserCostRates: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+            };
+            header?: never;
+            path: {
+                /** @description Workspace user CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated cost-rate history, oldest effective date first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        cost_rates?: components["schemas"]["CostRate"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createUserCostRate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Workspace user CUID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostRateCreate"];
+            };
+        };
+        responses: {
+            /** @description Created cost rate */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostRate"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyOrDomainConflict"];
+        };
+    };
+    getOwnPlanning: {
+        parameters: {
+            query?: {
+                /** @description Inclusive start; requires to. */
+                from?: string;
+                /** @description Inclusive end; requires from. */
+                to?: string;
+                page?: number;
+                per_page?: number;
+                /** @description Required for page > 1; use the page-1 token. */
+                snapshot_version?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private own schedule, including complete-range availability */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalPlanningSchedule"];
+                };
+            };
+            /** @description Invalid, unknown or duplicate query parameter, invalid calendar date, incomplete range or missing snapshot */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid, expired or revoked credential */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Current entitlement, membership, credential scope or own-read permission denies access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description snapshot_changed: discard accumulated pages and restart */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listPlanningAssignments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                from?: string;
+                to?: string;
+                client_id?: string;
+                project_id?: string;
+                user_id?: string;
+                /** @description Filter assigned people by custom role. Comma-separated values are accepted. */
+                role_id?: string;
+                /** @description Comma-separated values are accepted. */
+                project_status?: "active" | "tentative" | "archived";
+                include_tentative?: boolean;
+                include_tentative_in_capacity?: boolean;
+                include_placeholders?: boolean;
+                include_time_off?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list of planning assignments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        assignments?: components["schemas"]["PlanningAssignment"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createPlanningAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Opt into contract 1. Omitting this header preserves legacy semantics. Unsupported values return 400; disabled contract returns 503. */
+                "X-Keito-Planning-Contract"?: "1";
+                /** @description Required with contract 1. Workspace + actor + key identifies a 24-hour receipt. Retry with identical method, route, body, contract and If-Match. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanningAssignmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Legacy: expanded assignment. Contract 1: intrinsic assignment item with ETag (including deletion tombstone). */
+            200: {
+                headers: {
+                    /** @description Strong validator for contract-1 item fields only. */
+                    ETag?: string;
+                    /** @description Original completed receipt replayed after current authorization. */
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningAssignment"] | components["schemas"]["PlanningAssignmentItem"];
+                };
+            };
+            /** @description Malformed contract, key, strong If-Match, body or date */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            /** @description Same key reused with changed method, route, body, contract or precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Assignment revision changed or assignment deleted; fetch current state and use a new key for a new decision */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Required Idempotency-Key or If-Match missing */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Safe writes disabled; no legacy fallback */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPlanningAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Intrinsic assignment item */
+            200: {
+                headers: {
+                    /** @description Use this exact strong validator as If-Match for contract-1 PATCH/DELETE. */
+                    ETag?: string;
+                    /** @example private, no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningAssignmentItem"];
+                };
+            };
+            /** @description Credential denied */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Business entitlement or planning permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Assignment missing or outside current read scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deletePlanningAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Opt into contract 1. Omitting this header preserves legacy semantics. Unsupported values return 400; disabled contract returns 503. */
+                "X-Keito-Planning-Contract"?: "1";
+                /** @description Required with contract 1. Workspace + actor + key identifies a 24-hour receipt. Retry with identical method, route, body, contract and If-Match. */
+                "Idempotency-Key"?: string;
+                /** @description Required with contract 1: exactly one specific strong assignment ETag. Wildcards, weak ETags and lists are rejected. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Legacy: expanded assignment. Contract 1: intrinsic assignment item with ETag (including deletion tombstone). */
+            200: {
+                headers: {
+                    /** @description Strong validator for contract-1 item fields only. */
+                    ETag?: string;
+                    /** @description Original completed receipt replayed after current authorization. */
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningAssignment"] | components["schemas"]["PlanningAssignmentItem"];
+                };
+            };
+            /** @description Malformed contract, key, strong If-Match, body or date */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Same key reused with changed method, route, body, contract or precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Assignment revision changed or assignment deleted; fetch current state and use a new key for a new decision */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Required Idempotency-Key or If-Match missing */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Safe writes disabled; no legacy fallback */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updatePlanningAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Opt into contract 1. Omitting this header preserves legacy semantics. Unsupported values return 400; disabled contract returns 503. */
+                "X-Keito-Planning-Contract"?: "1";
+                /** @description Required with contract 1. Workspace + actor + key identifies a 24-hour receipt. Retry with identical method, route, body, contract and If-Match. */
+                "Idempotency-Key"?: string;
+                /** @description Required with contract 1: exactly one specific strong assignment ETag. Wildcards, weak ETags and lists are rejected. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanningAssignmentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Legacy: expanded assignment. Contract 1: intrinsic assignment item with ETag (including deletion tombstone). */
+            200: {
+                headers: {
+                    /** @description Strong validator for contract-1 item fields only. */
+                    ETag?: string;
+                    /** @description Original completed receipt replayed after current authorization. */
+                    "Idempotency-Replayed"?: "true";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanningAssignment"] | components["schemas"]["PlanningAssignmentItem"];
+                };
+            };
+            /** @description Malformed contract, key, strong If-Match, body or date */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Same key reused with changed method, route, body, contract or precondition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Assignment revision changed or assignment deleted; fetch current state and use a new key for a new decision */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Required Idempotency-Key or If-Match missing */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Safe writes disabled; no legacy fallback */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listPlanningPlaceholders: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated placeholder list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        placeholders?: components["schemas"]["PlanningPlaceholder"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlanningTimeOff: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                from?: string;
+                to?: string;
+                user_id?: string;
+                /** @description Filter people by custom role. Comma-separated values are accepted. */
+                role_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated time off list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        time_off?: components["schemas"]["PlanningTimeOff"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listPlanningCapacity: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                from?: string;
+                to?: string;
+                user_id?: string;
+                /** @description Filter people by custom role. Comma-separated values are accepted. */
+                role_id?: string;
+                include_tentative_in_capacity?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated person-day capacity rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        capacity?: components["schemas"]["PlanningCapacity"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listWebhooks: {
+        parameters: {
+            query?: {
+                page?: number;
+                per_page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated webhook endpoint list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        webhooks?: components["schemas"]["WebhookEndpoint"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookEndpointCreate"];
+            };
+        };
+        responses: {
+            /** @description Created webhook endpoint */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            /** @description Version-2 registration disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deleteWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated webhook endpoint */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        deleted: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listInvoices: {
@@ -1324,12 +6810,19 @@ export interface operations {
                 page?: components["parameters"]["page"];
                 per_page?: components["parameters"]["per_page"];
                 client_id?: string;
-                state?: "draft" | "open" | "paid" | "closed";
+                /** @description Invoice states to include. Repeat the parameter (`state=open&state=paid`) or pass one comma-separated value (`state=open,paid`); values are case-insensitive. An unknown value is a 400 `Invalid invoice state`. Omit it for every state. */
+                state?: ("draft" | "open" | "paid" | "closed" | "voided")[];
+                /** @description `true` returns only open invoices with a balance due whose due date has passed in the workspace timezone — an invoice is never overdue on its due date. It narrows `state` to `open`; combining it with a `state` list that excludes `open` is a 400 `overdue=true requires state to include open`. Any value other than `true` or `false` is a 400. */
+                overdue?: boolean;
+                /** @description `false` omits `line_items` from every row, for a lighter list. Any value other than `true` or `false` is a 400. */
+                include_line_items?: boolean;
                 /** @description Issue date start */
                 from?: string;
                 /** @description Issue date end */
                 to?: string;
                 updated_since?: string;
+                /** @description Eligible workspace member ID, or `unassigned`. */
+                owner_id?: string;
             };
             header?: never;
             path?: never;
@@ -1348,13 +6841,18 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
         };
     };
     createInvoice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -1374,7 +6872,16 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+            /** @description Request body exceeds 524288 bytes. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getInvoice: {
@@ -1397,6 +6904,7 @@ export interface operations {
                     "application/json": components["schemas"]["Invoice"];
                 };
             };
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -1451,6 +6959,414 @@ export interface operations {
                     "application/json": components["schemas"]["Invoice"];
                 };
             };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadInvoicePdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rendered invoice PDF */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listInvoiceAttachments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list of invoice attachments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        invoice_attachments?: components["schemas"]["InvoiceAttachment"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    uploadInvoiceAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created invoice attachment */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoiceAttachment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteInvoiceAttachment: {
+        parameters: {
+            query: {
+                attachment_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attachment removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success?: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadInvoiceAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attachment file */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listEstimates: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+                client_id?: string;
+                state?: "draft" | "sent" | "viewed" | "accepted" | "declined" | "expired";
+                from?: string;
+                to?: string;
+                /** @description Eligible workspace member ID, or `unassigned`. */
+                owner_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list of estimates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        estimates?: components["schemas"]["Estimate"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createEstimate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EstimateCreate"];
+            };
+        };
+        responses: {
+            /** @description Created estimate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Estimate"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+        };
+    };
+    getEstimate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estimate with line items */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Estimate"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteEstimate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id?: string;
+                        deleted?: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateEstimate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EstimateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated estimate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Estimate"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    sendEstimate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estimate marked as sent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @example SENT */
+                        state: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+        };
+    };
+    acceptEstimate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estimate accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    declineEstimate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estimate declined */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    convertEstimate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estimate converted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    duplicateEstimate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Duplicated estimate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Estimate"];
+                };
+            };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
@@ -1485,7 +7401,10 @@ export interface operations {
     sendInvoice: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
             path: {
                 id: string;
             };
@@ -1507,18 +7426,405 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["InvoiceConfirmationOrIdempotencyConflict"];
+        };
+    };
+    listInvoicePayments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: components["parameters"]["per_page"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list of the invoice's payments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        payments?: components["schemas"]["InvoicePayment"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createInvoicePayment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvoicePaymentCreate"];
+            };
+        };
+        responses: {
+            /** @description Recorded invoice payment */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoicePayment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["IdempotencyConflict"];
+        };
+    };
+    deleteInvoicePayment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Unique key for safely retrying the same mutation for 24 hours. */
+                "Idempotency-Key"?: components["parameters"]["OptionalIdempotencyKey"];
+            };
+            path: {
+                id: string;
+                paymentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deletion outcome */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvoicePaymentDeletion"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The payment was not recorded manually, or the `Idempotency-Key` was already used for a different request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getProjectMoneyBudgetSummary: {
+        parameters: {
+            query?: {
+                /** @description Include archived task budgets and their historical spend. */
+                include_inactive_tasks?: boolean;
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allowlisted budget progress, never raw finance records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        budget: number;
+                        spent: number;
+                        remaining: number;
+                        percent: number;
+                        /** @enum {boolean} */
+                        isHours: false;
+                        isMonthly: boolean;
+                        currency: string;
+                        tasks: {
+                            taskId: string;
+                            budget: number;
+                            spent: number;
+                            remaining: number;
+                            percent: number;
+                            /** @enum {boolean} */
+                            isHours: false;
+                            /** @enum {boolean} */
+                            isMonthly: false;
+                        }[];
+                    };
+                };
+            };
+            /** @description Invalid or conflicting query parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid authentication */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Grant, role, membership, credential scope or rollout gate denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invisible project or monetary budget unavailable */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getProjectBillingSummary: {
+        parameters: {
+            query?: {
+                /** @description Window start (YYYYMMDD or YYYY-MM-DD). Requires `to`. */
+                from?: string;
+                /** @description Window end (YYYYMMDD or YYYY-MM-DD). Requires `from`. */
+                to?: string;
+                /** @description Set to true to exclude calendar-derived time, including entries with retained calendar provenance under another source. Ordinary API clients default to false; MCP OAuth connections always exclude this time even if false is supplied. Only the exact values true and false are accepted; repeated values return 400. Pagination links retain this option. In project billing summaries this filters uninvoiced work only; issued invoice amounts and all-source project budgets are not recalculated. Not available to personal read-only sync keys. */
+                exclude_calendar?: components["parameters"]["exclude_calendar"];
+            };
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project billing summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "project": {
+                     *         "id": "clxproject123",
+                     *         "name": "Review Platform",
+                     *         "code": "REVIEW",
+                     *         "client": {
+                     *           "id": "clxclient123",
+                     *           "name": "Review Client"
+                     *         },
+                     *         "currency": "GBP",
+                     *         "is_fixed_fee": false,
+                     *         "is_active": true
+                     *       },
+                     *       "period": {
+                     *         "from": "2026-09-01",
+                     *         "to": "2026-09-30"
+                     *       },
+                     *       "invoiced": {
+                     *         "amount": 1250,
+                     *         "currency": "GBP",
+                     *         "by_currency": [
+                     *           {
+                     *             "currency": "GBP",
+                     *             "amount": 1250
+                     *           }
+                     *         ],
+                     *         "draft_amount": 300
+                     *       },
+                     *       "invoices_by_state": {
+                     *         "draft": 1,
+                     *         "open": 1,
+                     *         "paid": 0,
+                     *         "closed": 0,
+                     *         "voided": 0
+                     *       },
+                     *       "uninvoiced": {
+                     *         "hours": 1.25,
+                     *         "time_amount": 125,
+                     *         "expense_amount": 1.5,
+                     *         "amount": 126.5,
+                     *         "currency": "GBP"
+                     *       },
+                     *       "budget": null,
+                     *       "calendar_time_excluded": true,
+                     *       "includes_unapproved_billable_work": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ProjectBillingSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["ForbiddenOrCapabilityRequired"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getProjectBudgetReport: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: number;
+                /** @description Return only active or inactive projects. */
+                is_active?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project budget report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "results": [
+                     *         {
+                     *           "project_id": "clxproject123",
+                     *           "project_name": "Implementation",
+                     *           "client_id": "clxclient123",
+                     *           "client_name": "Example Client",
+                     *           "budget_is_monthly": false,
+                     *           "budget_by": "project",
+                     *           "is_active": true,
+                     *           "budget": 20000,
+                     *           "budget_spent": 5250,
+                     *           "budget_remaining": 14750
+                     *         }
+                     *       ],
+                     *       "per_page": 2000,
+                     *       "total_pages": 1,
+                     *       "total_entries": 1,
+                     *       "next_page": null,
+                     *       "previous_page": null,
+                     *       "page": 1,
+                     *       "links": {
+                     *         "first": "/api/v2/reports/project_budget?page=1&is_active=true&per_page=2000",
+                     *         "next": null,
+                     *         "previous": null,
+                     *         "last": "/api/v2/reports/project_budget?page=1&is_active=true&per_page=2000"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HarvestReportPaginationEnvelope"] & {
+                        results: components["schemas"]["ProjectBudgetReportResult"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getUninvoicedReport: {
+        parameters: {
+            query: {
+                page?: components["parameters"]["page"];
+                per_page?: number;
+                /** @description Inclusive start date in YYYYMMDD format. */
+                from: string;
+                /** @description Inclusive end date in YYYYMMDD format; ranges are limited to 365 days. */
+                to: string;
+                /** @description Include fixed-fee projects and their remaining fee balance. */
+                include_fixed_fee?: boolean;
+                /** @description Set to true to exclude calendar-derived time, including entries with retained calendar provenance under another source. Ordinary API clients default to false; MCP OAuth connections always exclude this time even if false is supplied. Only the exact values true and false are accepted; repeated values return 400. Pagination links retain this option. In project billing summaries this filters uninvoiced work only; issued invoice amounts and all-source project budgets are not recalculated. Not available to personal read-only sync keys. */
+                exclude_calendar?: components["parameters"]["exclude_calendar"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Uninvoiced report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "results": [
+                     *         {
+                     *           "client_id": "clxclient123",
+                     *           "client_name": "Example Client",
+                     *           "project_id": "clxproject123",
+                     *           "project_name": "Implementation",
+                     *           "currency": "GBP",
+                     *           "total_hours": 42.5,
+                     *           "uninvoiced_hours": 12.5,
+                     *           "uninvoiced_expenses": 125,
+                     *           "uninvoiced_amount": 1375
+                     *         }
+                     *       ],
+                     *       "per_page": 2000,
+                     *       "total_pages": 1,
+                     *       "total_entries": 1,
+                     *       "next_page": null,
+                     *       "previous_page": null,
+                     *       "page": 1,
+                     *       "links": {
+                     *         "first": "/api/v2/reports/uninvoiced?page=1&from=20260101&to=20260131&per_page=2000",
+                     *         "next": null,
+                     *         "previous": null,
+                     *         "last": "/api/v2/reports/uninvoiced?page=1&from=20260101&to=20260131&per_page=2000"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HarvestReportPaginationEnvelope"] & {
+                        results: components["schemas"]["UninvoicedReportResult"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
         };
     };
     getTeamTimeReport: {
         parameters: {
             query: {
+                /** @description Set to true to exclude calendar-derived time, including entries with retained calendar provenance under another source. Ordinary API clients default to false; MCP OAuth connections always exclude this time even if false is supplied. Only the exact values true and false are accepted; repeated values return 400. Pagination links retain this option. In project billing summaries this filters uninvoiced work only; issued invoice amounts and all-source project budgets are not recalculated. Not available to personal read-only sync keys. */
+                exclude_calendar?: components["parameters"]["exclude_calendar"];
                 page?: components["parameters"]["page"];
                 per_page?: components["parameters"]["per_page"];
                 /** @description Start date in YYYYMMDD format */
                 from: string;
                 /** @description End date in YYYYMMDD format */
                 to: string;
+                /** @description Filter report rows to time entries for projects under this client. */
+                client_id?: string;
+                /** @description Filter report rows to one project. */
+                project_id?: string;
+                /** @description Filter report rows by time-entry source, including `integration` entries created through integrations and `clickup` imports. `mobile` is time tracked on the first-party phone apps; servers that accept it advertise `team-report-source-mobile` in `X-Keito-Features`. */
+                source?: "web" | "cli" | "api" | "agent" | "calendar" | "desktop" | "mobile" | "integration" | "clickup" | "extension";
             };
             header?: never;
             path?: never;
@@ -1539,6 +7845,560 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WorkspaceMismatch"];
+        };
+    };
+    getTimeReportByClients: {
+        parameters: {
+            query: {
+                page?: components["parameters"]["page"];
+                per_page?: number;
+                /** @description Inclusive start date, YYYYMMDD or YYYY-MM-DD. */
+                from: string;
+                /** @description Inclusive end date, YYYYMMDD or YYYY-MM-DD; ranges are limited to 365 days. */
+                to: string;
+                /** @description Limit to one person's time. `me` is the caller; any other id needs owner or administrator access. */
+                user_id?: string;
+                /** @description Limit to projects under one client. */
+                client_id?: string;
+                /** @description Limit to one project. */
+                project_id?: string;
+                /** @description Price time on fixed-fee projects at billable rates. Hours always count. */
+                include_fixed_fee?: boolean;
+                /** @description Only time on active projects. */
+                active_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Time report by client */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "results": [
+                     *         {
+                     *           "id": "clxclientacme",
+                     *           "name": "Acme",
+                     *           "total_hours": 3.25,
+                     *           "billable_hours": 2.75,
+                     *           "non_billable_hours": 0.5,
+                     *           "fixed_fee_hours": 0,
+                     *           "currency": "GBP",
+                     *           "billable_amount": 275,
+                     *           "rate": 100,
+                     *           "billable_amounts": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "amount": 275
+                     *             }
+                     *           ],
+                     *           "rates": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "rate": 100
+                     *             }
+                     *           ]
+                     *         },
+                     *         {
+                     *           "id": "clxclientglobex",
+                     *           "name": "Globex",
+                     *           "total_hours": 2,
+                     *           "billable_hours": 2,
+                     *           "non_billable_hours": 0,
+                     *           "fixed_fee_hours": 0,
+                     *           "currency": "USD",
+                     *           "billable_amount": 160,
+                     *           "rate": 80,
+                     *           "billable_amounts": [
+                     *             {
+                     *               "currency": "USD",
+                     *               "amount": 160
+                     *             }
+                     *           ],
+                     *           "rates": [
+                     *             {
+                     *               "currency": "USD",
+                     *               "rate": 80
+                     *             }
+                     *           ]
+                     *         }
+                     *       ],
+                     *       "summary": {
+                     *         "total_hours": 5.25,
+                     *         "billable_hours": 4.75,
+                     *         "non_billable_hours": 0.5,
+                     *         "fixed_fee_hours": 0,
+                     *         "billable_percent": 90.48,
+                     *         "amounts_visible": true,
+                     *         "billable_amounts": [
+                     *           {
+                     *             "currency": "GBP",
+                     *             "amount": 275
+                     *           },
+                     *           {
+                     *             "currency": "USD",
+                     *             "amount": 160
+                     *           }
+                     *         ],
+                     *         "rounding": {
+                     *           "mode": "min_15",
+                     *           "description": "rounded to the nearest 15 minutes"
+                     *         }
+                     *       },
+                     *       "per_page": 100,
+                     *       "total_pages": 1,
+                     *       "total_entries": 2,
+                     *       "next_page": null,
+                     *       "previous_page": null,
+                     *       "page": 1,
+                     *       "links": {
+                     *         "first": "/api/v2/reports/time/clients?page=1&from=20260907&to=20260913&per_page=100",
+                     *         "next": null,
+                     *         "previous": null,
+                     *         "last": "/api/v2/reports/time/clients?page=1&from=20260907&to=20260913&per_page=100"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HarvestReportPaginationEnvelope"] & {
+                        results: components["schemas"]["TimeReportRow"][];
+                        summary: components["schemas"]["TimeReportSummary"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WorkspaceMismatch"];
+        };
+    };
+    getTimeReportByProjects: {
+        parameters: {
+            query: {
+                page?: components["parameters"]["page"];
+                per_page?: number;
+                /** @description Inclusive start date, YYYYMMDD or YYYY-MM-DD. */
+                from: string;
+                /** @description Inclusive end date, YYYYMMDD or YYYY-MM-DD; ranges are limited to 365 days. */
+                to: string;
+                /** @description Limit to one person's time. `me` is the caller; any other id needs owner or administrator access. */
+                user_id?: string;
+                /** @description Limit to projects under one client. */
+                client_id?: string;
+                /** @description Limit to one project. */
+                project_id?: string;
+                /** @description Price time on fixed-fee projects at billable rates. Hours always count. */
+                include_fixed_fee?: boolean;
+                /** @description Only time on active projects. */
+                active_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Time report by project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "results": [
+                     *         {
+                     *           "id": "clxprojectacme",
+                     *           "name": "Acme Build",
+                     *           "client_id": "clxclientacme",
+                     *           "client_name": "Acme",
+                     *           "code": "ACME",
+                     *           "is_fixed_fee": false,
+                     *           "total_hours": 3.25,
+                     *           "billable_hours": 2.75,
+                     *           "non_billable_hours": 0.5,
+                     *           "fixed_fee_hours": 0,
+                     *           "currency": "GBP",
+                     *           "billable_amount": 275,
+                     *           "rate": 100,
+                     *           "billable_amounts": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "amount": 275
+                     *             }
+                     *           ],
+                     *           "rates": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "rate": 100
+                     *             }
+                     *           ]
+                     *         },
+                     *         {
+                     *           "id": "clxprojectglobex",
+                     *           "name": "Globex Rollout",
+                     *           "client_id": "clxclientglobex",
+                     *           "client_name": "Globex",
+                     *           "code": "GLX",
+                     *           "is_fixed_fee": false,
+                     *           "total_hours": 2,
+                     *           "billable_hours": 2,
+                     *           "non_billable_hours": 0,
+                     *           "fixed_fee_hours": 0,
+                     *           "currency": "USD",
+                     *           "billable_amount": 160,
+                     *           "rate": 80,
+                     *           "billable_amounts": [
+                     *             {
+                     *               "currency": "USD",
+                     *               "amount": 160
+                     *             }
+                     *           ],
+                     *           "rates": [
+                     *             {
+                     *               "currency": "USD",
+                     *               "rate": 80
+                     *             }
+                     *           ]
+                     *         }
+                     *       ],
+                     *       "summary": {
+                     *         "total_hours": 5.25,
+                     *         "billable_hours": 4.75,
+                     *         "non_billable_hours": 0.5,
+                     *         "fixed_fee_hours": 0,
+                     *         "billable_percent": 90.48,
+                     *         "amounts_visible": true,
+                     *         "billable_amounts": [
+                     *           {
+                     *             "currency": "GBP",
+                     *             "amount": 275
+                     *           },
+                     *           {
+                     *             "currency": "USD",
+                     *             "amount": 160
+                     *           }
+                     *         ],
+                     *         "rounding": {
+                     *           "mode": "min_15",
+                     *           "description": "rounded to the nearest 15 minutes"
+                     *         }
+                     *       },
+                     *       "per_page": 100,
+                     *       "total_pages": 1,
+                     *       "total_entries": 2,
+                     *       "next_page": null,
+                     *       "previous_page": null,
+                     *       "page": 1,
+                     *       "links": {
+                     *         "first": "/api/v2/reports/time/projects?page=1&from=20260907&to=20260913&per_page=100",
+                     *         "next": null,
+                     *         "previous": null,
+                     *         "last": "/api/v2/reports/time/projects?page=1&from=20260907&to=20260913&per_page=100"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HarvestReportPaginationEnvelope"] & {
+                        results: components["schemas"]["TimeReportProjectRow"][];
+                        summary: components["schemas"]["TimeReportSummary"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WorkspaceMismatch"];
+        };
+    };
+    getTimeReportByTasks: {
+        parameters: {
+            query: {
+                page?: components["parameters"]["page"];
+                per_page?: number;
+                /** @description Inclusive start date, YYYYMMDD or YYYY-MM-DD. */
+                from: string;
+                /** @description Inclusive end date, YYYYMMDD or YYYY-MM-DD; ranges are limited to 365 days. */
+                to: string;
+                /** @description Limit to one person's time. `me` is the caller; any other id needs owner or administrator access. */
+                user_id?: string;
+                /** @description Limit to projects under one client. */
+                client_id?: string;
+                /** @description Limit to one project. */
+                project_id?: string;
+                /** @description Price time on fixed-fee projects at billable rates. Hours always count. */
+                include_fixed_fee?: boolean;
+                /** @description Only time on active projects. */
+                active_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Time report by task */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "results": [
+                     *         {
+                     *           "id": "clxtaskdesign",
+                     *           "name": "Design",
+                     *           "percent_of_total": 52.38,
+                     *           "total_hours": 2.75,
+                     *           "billable_hours": 2.25,
+                     *           "non_billable_hours": 0.5,
+                     *           "fixed_fee_hours": 0,
+                     *           "currency": "GBP",
+                     *           "billable_amount": 225,
+                     *           "rate": 100,
+                     *           "billable_amounts": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "amount": 225
+                     *             }
+                     *           ],
+                     *           "rates": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "rate": 100
+                     *             }
+                     *           ]
+                     *         },
+                     *         {
+                     *           "id": "clxtaskreview",
+                     *           "name": "Review",
+                     *           "percent_of_total": 47.62,
+                     *           "total_hours": 2.5,
+                     *           "billable_hours": 2.5,
+                     *           "non_billable_hours": 0,
+                     *           "fixed_fee_hours": 0,
+                     *           "currency": null,
+                     *           "billable_amount": null,
+                     *           "rate": null,
+                     *           "billable_amounts": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "amount": 50
+                     *             },
+                     *             {
+                     *               "currency": "USD",
+                     *               "amount": 160
+                     *             }
+                     *           ],
+                     *           "rates": [
+                     *             {
+                     *               "currency": "GBP",
+                     *               "rate": 100
+                     *             },
+                     *             {
+                     *               "currency": "USD",
+                     *               "rate": 80
+                     *             }
+                     *           ]
+                     *         }
+                     *       ],
+                     *       "summary": {
+                     *         "total_hours": 5.25,
+                     *         "billable_hours": 4.75,
+                     *         "non_billable_hours": 0.5,
+                     *         "fixed_fee_hours": 0,
+                     *         "billable_percent": 90.48,
+                     *         "amounts_visible": true,
+                     *         "billable_amounts": [
+                     *           {
+                     *             "currency": "GBP",
+                     *             "amount": 275
+                     *           },
+                     *           {
+                     *             "currency": "USD",
+                     *             "amount": 160
+                     *           }
+                     *         ],
+                     *         "rounding": {
+                     *           "mode": "min_15",
+                     *           "description": "rounded to the nearest 15 minutes"
+                     *         }
+                     *       },
+                     *       "per_page": 100,
+                     *       "total_pages": 1,
+                     *       "total_entries": 2,
+                     *       "next_page": null,
+                     *       "previous_page": null,
+                     *       "page": 1,
+                     *       "links": {
+                     *         "first": "/api/v2/reports/time/tasks?page=1&from=20260907&to=20260913&per_page=100",
+                     *         "next": null,
+                     *         "previous": null,
+                     *         "last": "/api/v2/reports/time/tasks?page=1&from=20260907&to=20260913&per_page=100"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HarvestReportPaginationEnvelope"] & {
+                        results: components["schemas"]["TimeReportTaskRow"][];
+                        summary: components["schemas"]["TimeReportSummary"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WorkspaceMismatch"];
+        };
+    };
+    listRetainers: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                per_page?: number;
+                client_id?: string;
+                /** @description Current retainer status; omitted includes both states. */
+                status?: "ACTIVE" | "ARCHIVED";
+                /**
+                 * @description Inclusive activity calendar date in YYYY-MM-DD format (UTC). Must be a
+                 *     real date. Late-entered activities dated through this date count;
+                 *     currently voided activities do not. Omitted includes all current activity
+                 *     dates. This is a corrected-ledger cutoff, not a recorded-at-time snapshot.
+                 */
+                as_of?: components["parameters"]["retainerAsOf"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated retainers and their computed balances */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginationEnvelope"] & {
+                        retainers: components["schemas"]["RetainerBalance"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getRetainer: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Inclusive activity calendar date in YYYY-MM-DD format (UTC). Must be a
+                 *     real date. Late-entered activities dated through this date count;
+                 *     currently voided activities do not. Omitted includes all current activity
+                 *     dates. This is a corrected-ledger cutoff, not a recorded-at-time snapshot.
+                 */
+                as_of?: components["parameters"]["retainerAsOf"];
+            };
+            header?: never;
+            path: {
+                retainerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Retainer and its computed balance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetainerBalance"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getWorkspaceBackupManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backup manifest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupManifest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getWorkspaceBackupResource: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["page"];
+                /** @description Backup pages are capped at 500 records because records can contain nested detail. */
+                per_page?: number;
+            };
+            header?: never;
+            path: {
+                resource: "workspace" | "members" | "roles" | "teammate_assignments" | "clients" | "projects" | "tasks" | "time_entries" | "expense_categories" | "expenses" | "invoice_settings" | "bank_accounts" | "invoice_item_categories" | "invoices" | "estimates" | "retainers" | "recurring_invoices" | "planning_assignments" | "planning_placeholders" | "planning_time_off" | "planning_working_patterns" | "planning_milestones" | "time_off_types" | "time_off_allowances" | "company_holidays" | "saved_reports" | "invitations" | "webhook_endpoints" | "audit_logs";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated backup records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupResourcePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    downloadBackupInvoiceExpenseReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receipt file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

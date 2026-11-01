@@ -4,6 +4,8 @@
     ".": {
       "release-type": "node",
       "package-name": "@keito-ai/sdk",
+      "include-component-in-tag": false,
+      "extra-files": ["src/version.ts"],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },
