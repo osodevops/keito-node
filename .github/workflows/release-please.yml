@@ -18,7 +18,8 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          release-type: node
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   publish:
     needs: release-please
@@ -36,9 +37,10 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run generate
+      - run: git diff --exit-code -- src/generated/
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      - run: npm run test:package
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

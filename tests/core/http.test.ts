@@ -50,6 +50,65 @@ describe('HttpClient', () => {
     });
   });
 
+  it.each(['https://api.test.io', 'https://api.test.io/', 'https://api.test.io/api/v2', 'https://api.test.io/api/v2/'])('normalizes the documented base URL %s', async (baseUrl) => {
+    const spy = mockFetch({});
+    await makeClient({ baseUrl }).request('GET', '/api/v2/projects');
+    expect(spy.mock.calls[0][0]).toBe('https://api.test.io/api/v2/projects');
+  });
+
+  it.each(['https://api.test.io/proxy', 'https://user:secret@api.test.io', 'https://api.test.io?token=secret', 'https://api.test.io/#fragment', 'not-a-url'])('rejects ambiguous base URLs without printing them', baseUrl => {
+    expect(() => makeClient({ baseUrl })).toThrow('baseUrl');
+  });
+
+  it('does not follow an authenticated redirect', async () => {
+    const spy = mockFetch({});
+    await makeClient().request('GET', '/api/v2/users/me');
+    expect(spy.mock.calls[0][1]).toMatchObject({ redirect: 'error' });
+  });
+
+  it('does not replay a POST after an uncertain network failure', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network failed'));
+    await expect(makeClient({ maxRetries: 3 }).request('POST', '/api/v2/expenses', { body: { total_cost: 1 } })).rejects.toThrow(KeitoConnectionError);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['POST', 'PATCH', 'DELETE'])('does not replay an unkeyed %s after a gateway error', async method => {
+    const spy = mockFetch({ ok: false, status: 503, json: async () => ({ error: 'unavailable' }) });
+    await expect(makeClient({ maxRetries: 3 }).request(method, '/api/v2/expenses', { body: { total_cost: 1 } })).rejects.toThrow(KeitoApiError);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects malformed idempotency keys before sending the request', async () => {
+    const spy = mockFetch({});
+    await expect(makeClient().request('POST', '/api/v2/expenses', { idempotencyKey: 'bad key' })).rejects.toThrow('idempotencyKey');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('retries a keyed POST with identical data and idempotency header', async () => {
+    vi.useFakeTimers();
+    try {
+      const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(new Response('{"id":"expense"}'));
+      const pending = makeClient({ maxRetries: 1 }).request('POST', '/api/v2/expenses', { body: { total_cost: 1 }, idempotencyKey: 'expense-retry-001' });
+      await vi.runAllTimersAsync();
+      await expect(pending).resolves.toEqual({ id: 'expense' });
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy.mock.calls[0][1]?.headers).toMatchObject({ 'Idempotency-Key': 'expense-retry-001' });
+      expect(spy.mock.calls[1][1]?.body).toBe(spy.mock.calls[0][1]?.body);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('rejects absolute resource URLs before credentials can leave the configured origin', async () => {
+    const spy = mockFetch({});
+    await expect(makeClient().request('GET', 'https://elsewhere.test/api/v2/users')).rejects.toThrow('path');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('checks the parsed origin after URL normalization removes control characters', async () => {
+    const spy = mockFetch({});
+    await expect(makeClient().request('GET', '/\n/elsewhere.test/api/v2/users')).rejects.toThrow('path');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('appends query params', async () => {
     const spy = mockFetch({ ok: true, status: 200, json: async () => ({}) });
     const client = makeClient();

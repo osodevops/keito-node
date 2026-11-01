@@ -22,7 +22,7 @@ export class Keito {
   readonly reports: Reports;
   readonly outcomes: Outcomes;
 
-  constructor(options: KeitoClientOptions) {
+  constructor(options: KeitoClientOptions = {}) {
     const http = new HttpClient(options);
     this.timeEntries = new TimeEntries(http);
     this.expenses = new Expenses(http);
