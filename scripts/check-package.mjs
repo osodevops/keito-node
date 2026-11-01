@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const documentation = readFileSync(join(root, 'README.md'), 'utf8');
+const paginationExample = [...documentation.matchAll(/```typescript\n([\s\S]*?)```/g)].map(match => match[1]).find(example => example.includes('for await'));
+assert.ok(paginationExample, 'README must contain its runnable async-pagination example.');
 const temporary = mkdtempSync(join(tmpdir(), 'keito-node-package-'));
 const npm = (args, cwd) => execFileSync('npm', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
 
@@ -34,9 +37,10 @@ try {
             assert.equal(init.headers['Content-Type'], undefined);
             return new Response(JSON.stringify({receipt_file_name:'receipt.pdf', receipt_file_size:4, receipt_content_type:'application/pdf', receipt_url:'/api/v2/expenses/expense/receipt'}), {status:201});
           }
-          if (init.method === 'GET' && String(url).includes('/projects')) {
+          if (init.method === 'GET' && (String(url).includes('/projects') || String(url).includes('/time_entries'))) {
             const second = new URL(url).searchParams.get('page') === '2';
-            return new Response(JSON.stringify({projects:[{id:second?'second':'first'}],page:second?2:1,per_page:1,total_entries:2,total_pages:2}));
+            const key = String(url).includes('/projects') ? 'projects' : 'time_entries';
+            return new Response(JSON.stringify({[key]:[{id:second?'second':'first',hours:1}],page:second?2:1,per_page:1,total_entries:2,total_pages:2}));
           }
           return new Response(JSON.stringify({id:'expense',is_running:false}));
         };
@@ -53,6 +57,10 @@ try {
         assert.equal(calls[0].url,'https://app.keito.ai/api/v2/projects');
         assert.equal(calls[0].init.headers.Authorization,'Bearer synthetic-package-key');
         assert.equal(calls[0].init.headers['Keito-Account-Id'],'synthetic-package-account');
+        const printed=[];
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+        await new AsyncFunction('client','console',${JSON.stringify(paginationExample)})(client,{log:(...values)=>printed.push(values)});
+        assert.deepEqual(printed,[['first',1],['second',1]]);
       }
       smoke().catch(error=>{console.error(error);process.exitCode=1;});`;
     execFileSync(process.execPath, [...(format === 'esm' ? ['--input-type=module'] : []), '-e', program], {

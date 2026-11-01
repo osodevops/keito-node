@@ -234,7 +234,7 @@ List methods return a `PaginatedResponse<T>` with built-in auto-pagination. You 
 
 ```typescript
 // Auto-paginate through all time entries
-for await (const entry of client.timeEntries.list({ source: 'agent' })) {
+for await (const entry of await client.timeEntries.list({ source: 'agent' })) {
   console.log(entry.id, entry.hours);
 }
 ```
@@ -371,7 +371,7 @@ You can also pass any string as a custom outcome type.
 
 ### Blended Reporting
 
-Get a combined time + outcome summary for an agent:
+Get a combined time + outcome summary for an agent. Revenue values here are local estimates calculated from visible rates and recorded metadata. They do not establish issued invoices, customer payments or settled revenue:
 
 ```typescript
 const summary = await client.reports.agentSummary({
